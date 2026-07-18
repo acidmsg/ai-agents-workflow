@@ -54,16 +54,16 @@ fail() {
 CONFIG_FILE="$(dirname "$0")/bootstrap-phase0.conf"
 
 # --- Значения по умолчанию ---
-GROUP_NAME=""${GROUP_NAME}""
-GIT_EMAIL_DOMAIN=""${GIT_EMAIL_DOMAIN}""
-PROJECTS_DIR=""${PROJECTS_DIR}""
-SECRETS_DIR=""${SECRETS_DIR}""
+GROUP_NAME="${GROUP_NAME:-ai-workers}"
+GIT_EMAIL_DOMAIN="${GIT_EMAIL_DOMAIN:-ai-agent.acidbox}"
+PROJECTS_DIR="${PROJECTS_DIR:-/srv/projects}"
+SECRETS_DIR="${SECRETS_DIR:-/opt/secrets}"
 CONFIG_DIR="${CONFIG_DIR:-/opt/config}"
-SCRIPTS_DIR=""${SCRIPTS_DIR}""
-N8N_PORT=""${N8N_PORT}""
-N8N_WEBHOOK_URL=""${N8N_WEBHOOK_URL}""
-GOLANGCI_LINT_VERSION=""${GOLANGCI_LINT_VERSION}""
-MIN_DISK_SPACE_MB=""${MIN_DISK_SPACE_MB}""
+SCRIPTS_DIR="${SCRIPTS_DIR:-/opt/scripts}"
+N8N_PORT="${N8N_PORT:-5678}"
+N8N_WEBHOOK_URL="${N8N_WEBHOOK_URL:-https://your-vps-domain-or-ip:5678/}"
+GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v1.59.1}"
+MIN_DISK_SPACE_MB="${MIN_DISK_SPACE_MB:-500}"
 
 if [[ ${#USERS[@]} -eq 0 ]]; then
     USERS=(
@@ -231,7 +231,7 @@ for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
 
     # Создание директории проектов
-    projects_dir=""${PROJECTS_DIR}""
+    projects_dir="${PROJECTS_DIR:-/srv/projects}"
     if [[ -d "${projects_dir}" ]]; then
         skip "/srv/projects уже существует"
     else
