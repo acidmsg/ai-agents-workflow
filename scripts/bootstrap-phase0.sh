@@ -65,7 +65,7 @@ N8N_WEBHOOK_URL="${N8N_WEBHOOK_URL:-https://your-vps-domain-or-ip:5678/}"
 GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v1.59.1}"
 MIN_DISK_SPACE_MB="${MIN_DISK_SPACE_MB:-500}"
 
-if [[ ${#USERS[@]} -eq 0 ]]; then
+if [[ -z "${USERS[@]:-}" ]]; then
     USERS=(
         "n8n_user:Оркестратор n8n"
         "openclaw:Кодер OpenClaw"
@@ -74,7 +74,7 @@ if [[ ${#USERS[@]} -eq 0 ]]; then
     )
 fi
 
-if [[ ${#GIT_NAMES[@]} -eq 0 ]]; then
+if [[ -z "${GIT_NAMES[@]:-}" ]]; then
     declare -A GIT_NAMES=(
         ["n8n_user"]="n8n Orchestrator"
         ["openclaw"]="OpenClaw Agent"
