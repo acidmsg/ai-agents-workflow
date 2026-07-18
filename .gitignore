@@ -1,0 +1,19 @@
+.env
+.venv/
+__pycache__/
+.history/
+.vscode/
+logs/
+data/
+tmp/
+.pytest_cache/
+node_modules/
+dist/
+
+# Сессионные логи
+.roo/sessions/SESSION_ARCHIVE.md
+.roo/sessions/SESSION_LOG.md
+.roo/sessions/archive/
+
+# Чувствительные данные
+.roo/rules/.env
