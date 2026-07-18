@@ -247,7 +247,7 @@ else
     exit 1
 fi
 
-# Проверка python3
+# Проверка python3 (ставит python3-pip если нужно)
 if command -v python3 &>/dev/null; then
     PY_VERSION=$(python3 --version 2>/dev/null || echo "unknown")
     ok "Python 3 установлен: ${PY_VERSION}"
@@ -262,8 +262,8 @@ fi
 if command -v pip3 &>/dev/null; then
     ok "pip3 установлен"
 else
-    fail "pip3 не найден (ставится вместе с Python 3)"
-    exit 1
+    apt-get install -y -qq python3-pip > /dev/null 2>&1
+    ok "pip3 установлен"
 fi
 
 # Проверка golang (будет установлен при выборе Go)
