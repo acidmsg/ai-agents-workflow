@@ -53,19 +53,39 @@ INTERACTIVE=false
 if [[ "${1:-}" == "--interactive" ]] || [[ "${1:-}" == "-i" ]]; then
     INTERACTIVE=true
     shift
-    echo -e "${CLR_BOLD}Интерактивный режим${CLR_RESET} — для опциональных компонентов будет запрос [Y/n]"
 fi
 
+# Хелпер: спросить Y/n
 ask_yes() {
     local prompt="$1"
     local default="${2:-Y}"
     if [[ "${INTERACTIVE}" != "true" ]]; then
         return 0
     fi
-    read -r -p "  ? ${prompt} [Y/n] " answer
+    local yn="Y/n"
+    [[ "${default}" == "N" ]] && yn="y/N"
+    read -r -p "  ? ${prompt} [${yn}] " answer
     answer="${answer:-${default}}"
     [[ "${answer}" =~ ^[YyДд] ]]
 }
+
+# Переменные выбора языков (по умолчанию всё)
+INSTALL_GO="${INSTALL_GO:-true}"
+INSTALL_JS="${INSTALL_JS:-true}"
+INSTALL_CSS="${INSTALL_CSS:-true}"
+INSTALL_MD="${INSTALL_MD:-true}"
+
+if [[ "${INTERACTIVE}" == "true" ]]; then
+    echo ""
+    echo -e "${CLR_BOLD}Выбор компонентов для установки:${CLR_RESET}"
+    echo "  [✓] Python + ruff           (обязательно)"
+    echo ""
+    INSTALL_GO=false  && ask_yes "Go + golangci-lint" && INSTALL_GO=true
+    INSTALL_JS=false  && ask_yes "JS + eslint"         && INSTALL_JS=true
+    INSTALL_CSS=false && ask_yes "CSS + stylelint"      && INSTALL_CSS=true
+    INSTALL_MD=false  && ask_yes "Markdown + markdownlint" && INSTALL_MD=true
+    echo ""
+fi
 
 # Проверка и вывод: команда существует → SKIP, иначе → выполняем и OK
 idempotent_cmd() {
@@ -117,8 +137,6 @@ GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v1.59.1}"
 MIN_DISK_SPACE_MB="${MIN_DISK_SPACE_MB:-500}"
 HOME_DIR_PERMS="${HOME_DIR_PERMS:-2775}"
 UMASK="${UMASK:-0002}"
-SKIP_LINTERS="${SKIP_LINTERS:-false}"
-SKIP_GOLANGCI_LINT="${SKIP_GOLANGCI_LINT:-false}"
 
 if [[ -z "${USERS[@]:-}" ]]; then
     USERS=(
@@ -410,13 +428,20 @@ else
 fi
 
 # --- golangci-lint (Go) ---
-if [[ "${SKIP_GOLANGCI_LINT}" == "true" ]]; then
-    skip "golangci-lint пропущен (SKIP_GOLANGCI_LINT=true)"
-elif ! command -v go &>/dev/null; then
-    skip "golangci-lint пропущен — Go не установлен"
-elif ! ask_yes "Установить golangci-lint (Go-линтер)?"; then
+if [[ "${INSTALL_GO}" != "true" ]]; then
     skip "golangci-lint пропущен"
 else
+    # Установка Go, если нет
+    if ! command -v go &>/dev/null; then
+        step "0.3.2a" "Установка Go"
+        apt-get update -qq && apt-get install -y -qq golang-go 2>&1 | tail -1
+        if command -v go &>/dev/null; then
+            ok "Go установлен: $(go version)"
+        else
+            fail "Не удалось установить Go"
+        fi
+    fi
+    # golangci-lint
     step "0.3.2" "Установка golangci-lint (Go)"
     if command -v golangci-lint &>/dev/null; then
         GL_VER=$(golangci-lint --version 2>/dev/null | head -1 || echo "unknown")
@@ -433,7 +458,10 @@ else
 fi
 
 # --- eslint (JS/TS) ---
-step "0.3.3" "Установка eslint (JS/TS)"
+if [[ "${INSTALL_JS}" != "true" ]]; then
+    skip "eslint пропущен"
+else
+    step "0.3.3" "Установка eslint (JS/TS)"
 if command -v eslint &>/dev/null; then
     ESL_VER=$(eslint --version 2>/dev/null || echo "unknown")
     skip "eslint уже установлен: ${ESL_VER}"
@@ -445,9 +473,13 @@ else
         fail "Не удалось установить eslint"
     fi
 fi
+fi
 
 # --- stylelint (CSS) ---
-step "0.3.4" "Установка stylelint (CSS)"
+if [[ "${INSTALL_CSS}" != "true" ]]; then
+    skip "stylelint пропущен"
+else
+    step "0.3.4" "Установка stylelint (CSS)"
 if command -v stylelint &>/dev/null; then
     SL_VER=$(stylelint --version 2>/dev/null || echo "unknown")
     skip "stylelint уже установлен: ${SL_VER}"
@@ -459,9 +491,13 @@ else
         fail "Не удалось установить stylelint"
     fi
 fi
+fi
 
 # --- markdownlint-cli (Markdown) ---
-step "0.3.5" "Установка markdownlint-cli (Markdown)"
+if [[ "${INSTALL_MD}" != "true" ]]; then
+    skip "markdownlint-cli пропущен"
+else
+    step "0.3.5" "Установка markdownlint-cli (Markdown)"
 if command -v markdownlint &>/dev/null; then
     MDL_VER=$(markdownlint --version 2>/dev/null || echo "unknown")
     skip "markdownlint уже установлен: ${MDL_VER}"
@@ -472,6 +508,7 @@ else
     else
         fail "Не удалось установить markdownlint-cli"
     fi
+fi
 fi
 
 # =============================================================================
