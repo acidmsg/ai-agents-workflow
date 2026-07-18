@@ -47,19 +47,27 @@ fail() {
 }
 
 # -----------------------------------------------------------------------------
-# Интерактивный режим
+# Режимы работы
 # -----------------------------------------------------------------------------
-INTERACTIVE=false
-if [[ "${1:-}" == "--interactive" ]] || [[ "${1:-}" == "-i" ]]; then
-    INTERACTIVE=true
+MODE="auto"  # auto | minimal | full
+
+if [[ "${1:-}" == "--full" ]] || [[ "${1:-}" == "-f" ]]; then
+    MODE="full"
+    shift
+elif [[ "${1:-}" == "--interactive" ]] || [[ "${1:-}" == "-i" ]]; then
+    MODE="minimal"
     shift
 fi
 
-# Хелпер: спросить Y/n
-ask_yes() {
-    local prompt="$1"
-    local default="${2:-Y}"
-    if [[ "${INTERACTIVE}" != "true" ]]; then
+ask_if() {
+    local min_mode="$1"
+    local prompt="$2"
+    local default="${3:-Y}"
+    
+    if [[ "${MODE}" == "auto" ]]; then
+        return 0
+    fi
+    if [[ "${MODE}" == "minimal" ]] && [[ "${min_mode}" == "full" ]]; then
         return 0
     fi
     local yn="Y/n"
@@ -69,23 +77,22 @@ ask_yes() {
     [[ "${answer}" =~ ^[YyДд] ]]
 }
 
-# Переменные выбора языков (по умолчанию всё)
 INSTALL_GO="${INSTALL_GO:-true}"
 INSTALL_JS="${INSTALL_JS:-true}"
 INSTALL_CSS="${INSTALL_CSS:-true}"
 INSTALL_MD="${INSTALL_MD:-true}"
 INSTALL_PHP="${INSTALL_PHP:-true}"
 
-if [[ "${INTERACTIVE}" == "true" ]]; then
+if [[ "${MODE}" != "auto" ]]; then
     echo ""
-    echo -e "${CLR_BOLD}Выбор компонентов для установки:${CLR_RESET}"
+    echo -e "${CLR_BOLD}Выбор языков и линтеров:${CLR_RESET}"
     echo "  [✓] Python + ruff           (обязательно)"
     echo ""
-    INSTALL_GO=false  && ask_yes "Go + golangci-lint" && INSTALL_GO=true
-    INSTALL_JS=false  && ask_yes "JS + eslint"         && INSTALL_JS=true
-    INSTALL_CSS=false && ask_yes "CSS + stylelint"      && INSTALL_CSS=true
-    INSTALL_MD=false   && ask_yes "Markdown + markdownlint" && INSTALL_MD=true
-    INSTALL_PHP=false  && ask_yes "PHP + phpcs"             && INSTALL_PHP=true
+    INSTALL_GO=false   && ask_if "minimal" "Go + golangci-lint"         && INSTALL_GO=true
+    INSTALL_JS=false   && ask_if "minimal" "JS + eslint"                && INSTALL_JS=true
+    INSTALL_CSS=false  && ask_if "minimal" "CSS + stylelint"             && INSTALL_CSS=true
+    INSTALL_MD=false   && ask_if "minimal" "Markdown + markdownlint"     && INSTALL_MD=true
+    INSTALL_PHP=false  && ask_if "minimal" "PHP + phpcs"                && INSTALL_PHP=true
     echo ""
 fi
 
