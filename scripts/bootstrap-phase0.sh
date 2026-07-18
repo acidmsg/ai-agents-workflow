@@ -187,6 +187,32 @@ if [[ "${AVAIL_SPACE}" -lt "${MIN_DISK_SPACE_MB}" ]]; then
 fi
 ok "Свободное место на диске: ${AVAIL_SPACE}M"
 
+# Проверка git
+if command -v git &>/dev/null; then
+    GIT_VERSION=$(git --version 2>/dev/null || echo "unknown")
+    ok "Git установлен: ${GIT_VERSION}"
+else
+    fail "Git не найден. Установите git перед запуском."
+    exit 1
+fi
+
+# Проверка curl
+if command -v curl &>/dev/null; then
+    CURL_VERSION=$(curl --version 2>/dev/null | head -1 || echo "unknown")
+    ok "curl установлен"
+else
+    fail "curl не найден. Установите curl перед запуском."
+    exit 1
+fi
+
+# Проверка build-essential (gcc/g++ для node-gyp в n8n)
+if command -v gcc &>/dev/null && command -v g++ &>/dev/null; then
+    ok "build-essential (gcc/g++) установлен"
+else
+    fail "build-essential не найден. Установите: apt-get install -y build-essential"
+    exit 1
+fi
+
 # =============================================================================
 # 0.1 — Пользователи и группы
 # =============================================================================
