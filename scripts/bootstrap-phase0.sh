@@ -537,8 +537,8 @@ else
     ok "/opt/config/repo-map.json создан (664, root:ai-workers)"
 fi
 
-# --- reviewer_prompt.txt ---
-step "0.5.2" "Создание /opt/config/reviewer_prompt.txt"
+# --- reviewer_prompt.md ---
+step "0.5.2" "Создание /opt/config/reviewer_prompt.md"
 REVIEWER_PROMPT_CONTENT='You are a Senior Staff Security and QA Engineer. Your task is to mercilessly review the provided code diff and ensure it meets the business requirements without introducing bugs.
 
 Rules:
@@ -556,13 +556,13 @@ Rules:
 6. Use "approve" ONLY if you found zero issues. Be conservative.
 '
 
-if [[ -f "/opt/config/reviewer_prompt.txt" ]]; then
-    skip "/opt/config/reviewer_prompt.txt уже существует"
+if [[ -f "/opt/config/reviewer_prompt.md" ]]; then
+    skip "/opt/config/reviewer_prompt.md уже существует"
 else
-    echo "${REVIEWER_PROMPT_CONTENT}" > /opt/config/reviewer_prompt.txt
-    chown "root:"${GROUP_NAME}"" /opt/config/reviewer_prompt.txt
-    chmod 664 /opt/config/reviewer_prompt.txt
-    ok "/opt/config/reviewer_prompt.txt создан (664, root:ai-workers)"
+    echo "${REVIEWER_PROMPT_CONTENT}" > /opt/config/reviewer_prompt.md
+    chown "root:"${GROUP_NAME}"" /opt/config/reviewer_prompt.md
+    chmod 664 /opt/config/reviewer_prompt.md
+    ok "/opt/config/reviewer_prompt.md создан (664, root:ai-workers)"
 fi
 
 # =============================================================================
