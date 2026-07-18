@@ -247,7 +247,7 @@ else
     exit 1
 fi
 
-# Проверка python3 / pip3
+# Проверка python3
 if command -v python3 &>/dev/null; then
     PY_VERSION=$(python3 --version 2>/dev/null || echo "unknown")
     ok "Python 3 установлен: ${PY_VERSION}"
