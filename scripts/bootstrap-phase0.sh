@@ -216,9 +216,18 @@ ok "Скрипт запущен от root"
 if command -v node &>/dev/null; then
     NODE_VERSION=$(node --version 2>/dev/null || echo "unknown")
     ok "Node.js установлен: ${NODE_VERSION}"
+elif ask_if "full" "Node.js не найден. Установить?"; then
+    ok "Установка Node.js 20..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null 2>&1
+    apt-get install -y -qq nodejs > /dev/null 2>&1
+    if command -v node &>/dev/null; then
+        ok "Node.js установлен: $(node --version)"
+    else
+        fail "Не удалось установить Node.js"
+        exit 1
+    fi
 else
-    fail "Node.js не найден. Установите Node.js 18+ перед запуском скрипта."
-    echo "  Рекомендация: curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && apt-get install -y nodejs"
+    fail "Node.js обязателен. Прерывание."
     exit 1
 fi
 
@@ -226,7 +235,7 @@ if command -v npm &>/dev/null; then
     NPM_VERSION=$(npm --version 2>/dev/null || echo "unknown")
     ok "npm установлен: ${NPM_VERSION}"
 else
-    fail "npm не найден"
+    fail "npm не найден (ставится вместе с Node.js)"
     exit 1
 fi
 
@@ -234,24 +243,27 @@ fi
 if command -v python3 &>/dev/null; then
     PY_VERSION=$(python3 --version 2>/dev/null || echo "unknown")
     ok "Python 3 установлен: ${PY_VERSION}"
+elif ask_if "full" "Python 3 не найден. Установить?"; then
+    apt-get install -y -qq python3 python3-pip > /dev/null 2>&1
+    ok "Python 3 установлен: $(python3 --version)"
 else
-    fail "Python 3 не найден. Установите python3 перед запуском."
+    fail "Python 3 обязателен. Прерывание."
     exit 1
 fi
 
 if command -v pip3 &>/dev/null; then
     ok "pip3 установлен"
 else
-    fail "pip3 не найден. Установите python3-pip перед запуском."
+    fail "pip3 не найден (ставится вместе с Python 3)"
     exit 1
 fi
 
-# Проверка golang (некритично — предупреждение)
+# Проверка golang (будет установлен при выборе Go)
 if command -v go &>/dev/null; then
     GO_VERSION=$(go version 2>/dev/null || echo "unknown")
     ok "Go установлен: ${GO_VERSION}"
 else
-    skip "Go не найден — golangci-lint будет установлен, но Go-проекты не смогут компилироваться"
+    skip "Go не найден — будет установлен если выбрана поддержка Go"
 fi
 
 # Проверка дискового пространства
@@ -266,25 +278,33 @@ ok "Свободное место на диске: ${AVAIL_SPACE}M"
 if command -v git &>/dev/null; then
     GIT_VERSION=$(git --version 2>/dev/null || echo "unknown")
     ok "Git установлен: ${GIT_VERSION}"
+elif ask_if "full" "Git не найден. Установить?"; then
+    apt-get install -y -qq git > /dev/null 2>&1
+    ok "Git установлен: $(git --version)"
 else
-    fail "Git не найден. Установите git перед запуском."
+    fail "Git обязателен. Прерывание."
     exit 1
 fi
 
 # Проверка curl
 if command -v curl &>/dev/null; then
-    CURL_VERSION=$(curl --version 2>/dev/null | head -1 || echo "unknown")
+    ok "curl установлен"
+elif ask_if "full" "curl не найден. Установить?"; then
+    apt-get install -y -qq curl > /dev/null 2>&1
     ok "curl установлен"
 else
-    fail "curl не найден. Установите curl перед запуском."
+    fail "curl обязателен. Прерывание."
     exit 1
 fi
 
 # Проверка build-essential (gcc/g++ для node-gyp в n8n)
 if command -v gcc &>/dev/null && command -v g++ &>/dev/null; then
     ok "build-essential (gcc/g++) установлен"
+elif ask_if "full" "build-essential не найден. Установить?"; then
+    apt-get install -y -qq build-essential > /dev/null 2>&1
+    ok "build-essential установлен"
 else
-    fail "build-essential не найден. Установите: apt-get install -y build-essential"
+    fail "build-essential обязателен. Прерывание."
     exit 1
 fi
 
