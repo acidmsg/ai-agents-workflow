@@ -215,10 +215,10 @@ done
 # Настройка .gitconfig для каждого пользователя
 declare -A GIT_CONFIGS
 GIT_CONFIGS=(
-    ["n8n_user"]="n8n Orchestrator:n8n@ai-bot.local"
-    ["openclaw"]="OpenClaw Agent:openclaw@ai-bot.local"
-    ["antigravity_user"]="Antigravity Critic:antigravity@ai-bot.local"
-    ["hermes"]="Hermes Agent:hermes@ai-bot.local"
+    ["n8n_user"]="n8n Orchestrator:n8n@ai-agent.acidbox"
+    ["openclaw"]="OpenClaw Agent:openclaw@ai-agent.acidbox"
+    ["antigravity_user"]="Antigravity Critic:antigravity@ai-agent.acidbox"
+    ["hermes"]="Hermes Agent:hermes@ai-agent.acidbox"
 )
 
 for username in "${!GIT_CONFIGS[@]}"; do
