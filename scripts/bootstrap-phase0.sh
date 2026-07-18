@@ -157,9 +157,9 @@ idempotent_cmd \
 # Массив пользователей
 USERS=(
     "n8n_user:Оркестратор n8n"
-    "openclaw_user:Кодер OpenClaw"
+    "openclaw:Кодер OpenClaw"
     "antigravity_user:Критик Antigravity"
-    "hermes_user:Утилита Hermes"
+    "hermes:Утилита Hermes"
 )
 
 for user_entry in "${USERS[@]}"; do
@@ -188,7 +188,7 @@ done
 
 step "0.2" "Настройка прав, umask и Git-конфигурации"
 
-for username in n8n_user openclaw_user antigravity_user hermes_user; do
+for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
 
     # Создание директории проектов
@@ -216,9 +216,9 @@ done
 declare -A GIT_CONFIGS
 GIT_CONFIGS=(
     ["n8n_user"]="n8n Orchestrator:n8n@ai-bot.local"
-    ["openclaw_user"]="OpenClaw Agent:openclaw@ai-bot.local"
+    ["openclaw"]="OpenClaw Agent:openclaw@ai-bot.local"
     ["antigravity_user"]="Antigravity Critic:antigravity@ai-bot.local"
-    ["hermes_user"]="Hermes Agent:hermes@ai-bot.local"
+    ["hermes"]="Hermes Agent:hermes@ai-bot.local"
 )
 
 for username in "${!GIT_CONFIGS[@]}"; do
@@ -248,7 +248,7 @@ done
 
 # SGID-бит на домашних директориях (на случай, если созданы ранее без 2775)
 step "0.2b" "Проверка SGID-бита на домашних директориях"
-for username in n8n_user openclaw_user antigravity_user hermes_user; do
+for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
     current_perm=$(stat -c "%a" "${user_home}" 2>/dev/null || echo "000")
     if [[ "${current_perm}" == "2775" ]]; then
@@ -408,9 +408,9 @@ if [[ -f "/opt/secrets/openclaw.env" ]]; then
     skip "/opt/secrets/openclaw.env уже существует"
 else
     echo "${OPENCLAW_ENV_CONTENT}" > /opt/secrets/openclaw.env
-    chown openclaw_user:openclaw_user /opt/secrets/openclaw.env
+    chown openclaw:openclaw /opt/secrets/openclaw.env
     chmod 600 /opt/secrets/openclaw.env
-    ok "/opt/secrets/openclaw.env создан (600, openclaw_user:openclaw_user)"
+    ok "/opt/secrets/openclaw.env создан (600, openclaw:openclaw)"
 fi
 
 # --- antigravity.env ---
@@ -441,14 +441,14 @@ if [[ -f "/opt/secrets/hermes.env" ]]; then
     skip "/opt/secrets/hermes.env уже существует"
 else
     echo "${HERMES_ENV_CONTENT}" > /opt/secrets/hermes.env
-    chown hermes_user:hermes_user /opt/secrets/hermes.env
+    chown hermes:hermes /opt/secrets/hermes.env
     chmod 600 /opt/secrets/hermes.env
-    ok "/opt/secrets/hermes.env создан (600, hermes_user:hermes_user)"
+    ok "/opt/secrets/hermes.env создан (600, hermes:hermes)"
 fi
 
 # Добавление source в .bashrc каждого пользователя
 step "0.4.6" "Настройка автозагрузки секретов в .bashrc"
-for username in n8n_user openclaw_user antigravity_user hermes_user; do
+for username in n8n_user openclaw antigravity_user hermes; do
     bashrc_file="/home/${username}/.bashrc"
     source_line="source /opt/secrets/${username}.env"
 
@@ -624,10 +624,10 @@ fi
 # 0.7 — Sudo-правило для n8n → openclaw
 # =============================================================================
 
-step "0.7" "Создание sudo-правила для n8n_user → openclaw_user"
+step "0.7" "Создание sudo-правила для n8n_user → openclaw"
 
 SUDOERS_FILE="/etc/sudoers.d/n8n-agent"
-SUDOERS_CONTENT="n8n_user ALL=(openclaw_user) NOPASSWD: /opt/scripts/agent_loop.sh"
+SUDOERS_CONTENT="n8n_user ALL=(openclaw) NOPASSWD: /opt/scripts/agent_loop.sh"
 
 if [[ -f "${SUDOERS_FILE}" ]]; then
     skip "Sudo-правило уже существует: ${SUDOERS_FILE}"
@@ -671,7 +671,7 @@ echo "────────────────────────�
 echo "  Проверка пользователей и групп"
 echo "──────────────────────────────────────────"
 
-for username in n8n_user openclaw_user antigravity_user hermes_user; do
+for username in n8n_user openclaw antigravity_user hermes; do
     if id "${username}" &>/dev/null; then
         GROUPS=$(id -nG "${username}" 2>/dev/null | tr ' ' ',')
         if echo "${GROUPS}" | grep -q "ai-workers"; then
@@ -782,9 +782,9 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo "  Следующие шаги:"
     echo "  1. Замените плейсхолдеры в /opt/secrets/*.env на реальные ключи"
     echo "  2. Настройте repo-map.json: добавьте репозитории в /opt/config/repo-map.json"
-    echo "  3. Установите OpenClaw CLI от имени openclaw_user"
+    echo "  3. Установите OpenClaw CLI от имени openclaw"
     echo "  4. Установите Antigravity CLI от имени antigravity_user"
-    echo "  5. Установите Hermes CLI от имени hermes_user"
+    echo "  5. Установите Hermes CLI от имени hermes"
     echo "  6. Создайте /opt/scripts/agent_loop.sh"
     echo "  7. Настройте n8n workflow через веб-интерфейс (http://<VPS>:5678)"
     echo "  8. Перезапустите n8n: systemctl restart n8n"
