@@ -115,6 +115,10 @@ N8N_PORT="${N8N_PORT:-5678}"
 N8N_WEBHOOK_URL="${N8N_WEBHOOK_URL:-https://your-vps-domain-or-ip:5678/}"
 GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v1.59.1}"
 MIN_DISK_SPACE_MB="${MIN_DISK_SPACE_MB:-500}"
+HOME_DIR_PERMS="${HOME_DIR_PERMS:-2775}"
+UMASK="${UMASK:-0002}"
+SKIP_LINTERS="${SKIP_LINTERS:-false}"
+SKIP_GOLANGCI_LINT="${SKIP_GOLANGCI_LINT:-false}"
 
 if [[ -z "${USERS[@]:-}" ]]; then
     USERS=(
@@ -406,17 +410,25 @@ else
 fi
 
 # --- golangci-lint (Go) ---
-step "0.3.2" "Установка golangci-lint (Go)"
-if command -v golangci-lint &>/dev/null; then
-    GL_VER=$(golangci-lint --version 2>/dev/null | head -1 || echo "unknown")
-    skip "golangci-lint уже установлен: ${GL_VER}"
+if [[ "${SKIP_GOLANGCI_LINT}" == "true" ]]; then
+    skip "golangci-lint пропущен (SKIP_GOLANGCI_LINT=true)"
+elif ! command -v go &>/dev/null; then
+    skip "golangci-lint пропущен — Go не установлен"
+elif ! ask_yes "Установить golangci-lint (Go-линтер)?"; then
+    skip "golangci-lint пропущен"
 else
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}" 2>&1 | tail -3
-    chmod 755 /usr/local/bin/golangci-lint 2>/dev/null || true
+    step "0.3.2" "Установка golangci-lint (Go)"
     if command -v golangci-lint &>/dev/null; then
-        ok "golangci-lint установлен: $(golangci-lint --version 2>/dev/null | head -1)"
+        GL_VER=$(golangci-lint --version 2>/dev/null | head -1 || echo "unknown")
+        skip "golangci-lint уже установлен: ${GL_VER}"
     else
-        fail "Не удалось установить golangci-lint"
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}" 2>&1 | tail -3
+        chmod 755 /usr/local/bin/golangci-lint 2>/dev/null || true
+        if command -v golangci-lint &>/dev/null; then
+            ok "golangci-lint установлен: $(golangci-lint --version 2>/dev/null | head -1)"
+        else
+            fail "Не удалось установить golangci-lint"
+        fi
     fi
 fi
 
