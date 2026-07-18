@@ -225,6 +225,7 @@ if command -v node &>/dev/null; then
     ok "Node.js установлен: ${NODE_VERSION}"
 elif ask_if "full" "Node.js не найден. Установить?"; then
     ok "Установка Node.js 20..."
+    apt-get install -y -qq curl > /dev/null 2>&1
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null 2>&1
     apt-get install -y -qq nodejs > /dev/null 2>&1
     if command -v node &>/dev/null; then
