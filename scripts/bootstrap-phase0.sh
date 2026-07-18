@@ -46,10 +46,61 @@ fail() {
     echo -e "  ${CLR_RED}[FAIL]${CLR_RESET} ${1:-}"
 }
 
+# -----------------------------------------------------------------------------
+# Интерактивный режим
+# -----------------------------------------------------------------------------
+INTERACTIVE=false
+if [[ "${1:-}" == "--interactive" ]] || [[ "${1:-}" == "-i" ]]; then
+    INTERACTIVE=true
+    shift
+    echo -e "${CLR_BOLD}Интерактивный режим${CLR_RESET} — для опциональных компонентов будет запрос [Y/n]"
+fi
 
-# -----------------------------------------------------------------------------
+ask_yes() {
+    local prompt="$1"
+    local default="${2:-Y}"
+    if [[ "${INTERACTIVE}" != "true" ]]; then
+        return 0
+    fi
+    read -r -p "  ? ${prompt} [Y/n] " answer
+    answer="${answer:-${default}}"
+    [[ "${answer}" =~ ^[YyДд] ]]
+}
+
+# Проверка и вывод: команда существует → SKIP, иначе → выполняем и OK
+idempotent_cmd() {
+    local check_cmd="$1"
+    local action_cmd="$2"
+    local label="$3"
+
+    if eval "${check_cmd}" &>/dev/null; then
+        skip "${label} (уже существует)"
+        return 0
+    fi
+
+    eval "${action_cmd}"
+    ok "${label}"
+}
+
+# Проверка и вывод для создания файла: если файл существует → SKIP, иначе → создаём и OK
+idempotent_file() {
+    local filepath="$1"
+    local content="$2"
+    local label="$3"
+
+    if [[ -f "${filepath}" ]]; then
+        skip "${label} (файл уже существует)"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "${filepath}")"
+    echo "${content}" > "${filepath}"
+    ok "${label}"
+}
+
+# =============================================================================
 # Конфигурация (значения по умолчанию)
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Если рядом лежит bootstrap-phase0.conf — значения будут переопределены.
 CONFIG_FILE="$(dirname "$0")/bootstrap-phase0.conf"
 
