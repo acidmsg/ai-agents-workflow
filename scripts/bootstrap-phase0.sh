@@ -74,6 +74,7 @@ INSTALL_GO="${INSTALL_GO:-true}"
 INSTALL_JS="${INSTALL_JS:-true}"
 INSTALL_CSS="${INSTALL_CSS:-true}"
 INSTALL_MD="${INSTALL_MD:-true}"
+INSTALL_PHP="${INSTALL_PHP:-true}"
 
 if [[ "${INTERACTIVE}" == "true" ]]; then
     echo ""
@@ -83,7 +84,8 @@ if [[ "${INTERACTIVE}" == "true" ]]; then
     INSTALL_GO=false  && ask_yes "Go + golangci-lint" && INSTALL_GO=true
     INSTALL_JS=false  && ask_yes "JS + eslint"         && INSTALL_JS=true
     INSTALL_CSS=false && ask_yes "CSS + stylelint"      && INSTALL_CSS=true
-    INSTALL_MD=false  && ask_yes "Markdown + markdownlint" && INSTALL_MD=true
+    INSTALL_MD=false   && ask_yes "Markdown + markdownlint" && INSTALL_MD=true
+    INSTALL_PHP=false  && ask_yes "PHP + phpcs"             && INSTALL_PHP=true
     echo ""
 fi
 
@@ -509,6 +511,25 @@ else
         fail "Не удалось установить markdownlint-cli"
     fi
 fi
+fi
+
+# --- phpcs (PHP) ---
+if [[ "${INSTALL_PHP}" != "true" ]]; then
+    skip "phpcs пропущен"
+else
+    step "0.3.6" "Установка phpcs (PHP)"
+    if command -v phpcs &>/dev/null; then
+        PCS_VER=$(phpcs --version 2>/dev/null || echo "unknown")
+        skip "phpcs уже установлен: ${PCS_VER}"
+    else
+        apt-get install -y -qq php-pear 2>&1 | tail -1
+        pear install PHP_CodeSniffer 2>&1 | tail -3
+        if command -v phpcs &>/dev/null; then
+            ok "phpcs установлен"
+        else
+            fail "Не удалось установить phpcs"
+        fi
+    fi
 fi
 
 # =============================================================================
