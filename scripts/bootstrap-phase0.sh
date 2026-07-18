@@ -167,12 +167,23 @@ idempotent_cmd \
     "Группа ai-workers"
 
 # Массив пользователей
+# Проверка USERS — если конфиг не задал, используем дефолты
 if [[ ${#USERS[@]} -eq 0 ]]; then
     USERS=(
         "n8n_user:Оркестратор n8n"
         "openclaw:Кодер OpenClaw"
         "antigravity_user:Критик Antigravity"
         "hermes:Утилита Hermes"
+    )
+fi
+
+# Проверка GIT_NAMES
+if [[ ${#GIT_NAMES[@]} -eq 0 ]]; then
+    declare -A GIT_NAMES=(
+        ["n8n_user"]="n8n Orchestrator"
+        ["openclaw"]="OpenClaw Agent"
+        ["antigravity_user"]="Antigravity Critic"
+        ["hermes"]="Hermes Agent"
     )
 fi
 
