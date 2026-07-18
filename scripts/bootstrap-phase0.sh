@@ -48,9 +48,42 @@ fail() {
 
 
 # -----------------------------------------------------------------------------
-# Загрузка конфигурации
+# Конфигурация (значения по умолчанию)
 # -----------------------------------------------------------------------------
+# Если рядом лежит bootstrap-phase0.conf — значения будут переопределены.
 CONFIG_FILE="$(dirname "$0")/bootstrap-phase0.conf"
+
+# --- Значения по умолчанию ---
+GROUP_NAME=""${GROUP_NAME}""
+GIT_EMAIL_DOMAIN=""${GIT_EMAIL_DOMAIN}""
+PROJECTS_DIR=""${PROJECTS_DIR}""
+SECRETS_DIR=""${SECRETS_DIR}""
+CONFIG_DIR="${CONFIG_DIR:-/opt/config}"
+SCRIPTS_DIR=""${SCRIPTS_DIR}""
+N8N_PORT=""${N8N_PORT}""
+N8N_WEBHOOK_URL=""${N8N_WEBHOOK_URL}""
+GOLANGCI_LINT_VERSION=""${GOLANGCI_LINT_VERSION}""
+MIN_DISK_SPACE_MB=""${MIN_DISK_SPACE_MB}""
+
+if [[ ${#USERS[@]} -eq 0 ]]; then
+    USERS=(
+        "n8n_user:Оркестратор n8n"
+        "openclaw:Кодер OpenClaw"
+        "antigravity_user:Критик Antigravity"
+        "hermes:Утилита Hermes"
+    )
+fi
+
+if [[ ${#GIT_NAMES[@]} -eq 0 ]]; then
+    declare -A GIT_NAMES=(
+        ["n8n_user"]="n8n Orchestrator"
+        ["openclaw"]="OpenClaw Agent"
+        ["antigravity_user"]="Antigravity Critic"
+        ["hermes"]="Hermes Agent"
+    )
+fi
+
+# Загрузка внешнего конфига (переопределяет значения выше)
 if [[ -f "${CONFIG_FILE}" ]]; then
     source "${CONFIG_FILE}"
     ok "Конфигурация загружена: ${CONFIG_FILE}"
@@ -148,8 +181,8 @@ fi
 
 # Проверка дискового пространства
 AVAIL_SPACE=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
-if [[ "${AVAIL_SPACE}" -lt ${MIN_DISK_SPACE_MB:-500} ]]; then
-    fail "Недостаточно места на диске: ${AVAIL_SPACE}M свободно (требуется минимум ${MIN_DISK_SPACE_MB:-500}M)"
+if [[ "${AVAIL_SPACE}" -lt "${MIN_DISK_SPACE_MB}" ]]; then
+    fail "Недостаточно места на диске: ${AVAIL_SPACE}M свободно (требуется минимум "${MIN_DISK_SPACE_MB}"M)"
     exit 1
 fi
 ok "Свободное место на диске: ${AVAIL_SPACE}M"
@@ -162,30 +195,11 @@ step "0.1" "Создание пользователей и группы ai-worke
 
 # Создание группы ai-workers
 idempotent_cmd \
-    "getent group "${GROUP_NAME:-ai-workers}"" \
-    "groupadd "${GROUP_NAME:-ai-workers}"" \
+    "getent group ""${GROUP_NAME}""" \
+    "groupadd ""${GROUP_NAME}""" \
     "Группа ai-workers"
 
-# Массив пользователей
-# Проверка USERS — если конфиг не задал, используем дефолты
-if [[ ${#USERS[@]} -eq 0 ]]; then
-    USERS=(
-        "n8n_user:Оркестратор n8n"
-        "openclaw:Кодер OpenClaw"
-        "antigravity_user:Критик Antigravity"
-        "hermes:Утилита Hermes"
-    )
-fi
 
-# Проверка GIT_NAMES
-if [[ ${#GIT_NAMES[@]} -eq 0 ]]; then
-    declare -A GIT_NAMES=(
-        ["n8n_user"]="n8n Orchestrator"
-        ["openclaw"]="OpenClaw Agent"
-        ["antigravity_user"]="Antigravity Critic"
-        ["hermes"]="Hermes Agent"
-    )
-fi
 
 for user_entry in "${USERS[@]}"; do
     username="${user_entry%%:*}"
@@ -194,12 +208,12 @@ for user_entry in "${USERS[@]}"; do
     if id "${username}" &>/dev/null; then
         skip "Пользователь ${username} уже существует"
     else
-        useradd -m -G "${GROUP_NAME:-ai-workers}" -s /bin/bash -c "${description}" "${username}"
+        useradd -m -G ""${GROUP_NAME}"" -s /bin/bash -c "${description}" "${username}"
         ok "Пользователь ${username} создан (${description})"
     fi
 
     # Убедиться, что пользователь в группе ai-workers (на случай, если был создан ранее без неё)
-    if id -nG "${username}" | grep -qw "${GROUP_NAME:-ai-workers}"; then
+    if id -nG "${username}" | grep -qw ""${GROUP_NAME}""; then
         skip "  └─ ${username} уже в группе ai-workers"
     else
         usermod -aG ai-workers "${username}"
@@ -217,7 +231,7 @@ for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
 
     # Создание директории проектов
-    projects_dir="${PROJECTS_DIR:-/srv/projects}"
+    projects_dir=""${PROJECTS_DIR}""
     if [[ -d "${projects_dir}" ]]; then
         skip "/srv/projects уже существует"
     else
@@ -240,10 +254,10 @@ done
 # Настройка .gitconfig для каждого пользователя
 declare -A GIT_CONFIGS
 GIT_CONFIGS=(
-    ["n8n_user"]="n8n Orchestrator:n8n@${GIT_EMAIL_DOMAIN:-ai-agent.acidbox}"
-    ["openclaw"]="OpenClaw Agent:openclaw@${GIT_EMAIL_DOMAIN:-ai-agent.acidbox}"
-    ["antigravity_user"]="Antigravity Critic:antigravity@${GIT_EMAIL_DOMAIN:-ai-agent.acidbox}"
-    ["hermes"]="Hermes Agent:hermes@${GIT_EMAIL_DOMAIN:-ai-agent.acidbox}"
+    ["n8n_user"]="n8n Orchestrator:n8n@"${GIT_EMAIL_DOMAIN}""
+    ["openclaw"]="OpenClaw Agent:openclaw@"${GIT_EMAIL_DOMAIN}""
+    ["antigravity_user"]="Antigravity Critic:antigravity@"${GIT_EMAIL_DOMAIN}""
+    ["hermes"]="Hermes Agent:hermes@"${GIT_EMAIL_DOMAIN}""
 )
 
 for username in "${!GIT_CONFIGS[@]}"; do
@@ -320,7 +334,7 @@ if command -v golangci-lint &>/dev/null; then
     GL_VER=$(golangci-lint --version 2>/dev/null | head -1 || echo "unknown")
     skip "golangci-lint уже установлен: ${GL_VER}"
 else
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin ${GOLANGCI_LINT_VERSION:-v1.59.1} 2>&1 | tail -3
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}" 2>&1 | tail -3
     chmod 755 /usr/local/bin/golangci-lint 2>/dev/null || true
     if command -v golangci-lint &>/dev/null; then
         ok "golangci-lint установлен: $(golangci-lint --version 2>/dev/null | head -1)"
@@ -375,20 +389,20 @@ fi
 # 0.4 — Секреты
 # =============================================================================
 
-step "0.4" "Настройка структуры секретов (${SECRETS_DIR:-/opt/secrets}/)"
+step "0.4" "Настройка структуры секретов ("${SECRETS_DIR}"/)"
 
-# Создание директории ${SECRETS_DIR:-/opt/secrets}/
-if [[ -d "${SECRETS_DIR:-/opt/secrets}" ]]; then
-    skip "Директория ${SECRETS_DIR:-/opt/secrets}/ уже существует"
+# Создание директории "${SECRETS_DIR}"/
+if [[ -d ""${SECRETS_DIR}"" ]]; then
+    skip "Директория "${SECRETS_DIR}"/ уже существует"
 else
-    mkdir -p ${SECRETS_DIR:-/opt/secrets}
-    chown root:root ${SECRETS_DIR:-/opt/secrets}
-    chmod 750 ${SECRETS_DIR:-/opt/secrets}
-    ok "Директория ${SECRETS_DIR:-/opt/secrets}/ создана (750, root:root)"
+    mkdir -p "${SECRETS_DIR}"
+    chown root:root "${SECRETS_DIR}"
+    chmod 750 "${SECRETS_DIR}"
+    ok "Директория "${SECRETS_DIR}"/ создана (750, root:root)"
 fi
 
 # --- shared.env ---
-step "0.4.1" "Создание ${SECRETS_DIR:-/opt/secrets}/shared.env"
+step "0.4.1" "Создание "${SECRETS_DIR}"/shared.env"
 SHARED_ENV_CONTENT='# Shared secrets — подключается всеми агентами через source
 # ВНИМАНИЕ: замените плейсхолдеры на реальные значения после разворачивания!
 
@@ -396,92 +410,92 @@ DEEPSEEK_API_KEY=sk_your_deepseek_key_here
 GITHUB_TOKEN=ghp_your_github_pat_here
 '
 
-if [[ -f "${SECRETS_DIR:-/opt/secrets}/shared.env" ]]; then
-    skip "${SECRETS_DIR:-/opt/secrets}/shared.env уже существует"
+if [[ -f ""${SECRETS_DIR}"/shared.env" ]]; then
+    skip ""${SECRETS_DIR}"/shared.env уже существует"
 else
-    echo "${SHARED_ENV_CONTENT}" > ${SECRETS_DIR:-/opt/secrets}/shared.env
-    chown "root:${GROUP_NAME:-ai-workers}" ${SECRETS_DIR:-/opt/secrets}/shared.env
-    chmod 640 ${SECRETS_DIR:-/opt/secrets}/shared.env
-    ok "${SECRETS_DIR:-/opt/secrets}/shared.env создан (640, root:ai-workers)"
+    echo "${SHARED_ENV_CONTENT}" > "${SECRETS_DIR}"/shared.env
+    chown "root:"${GROUP_NAME}"" "${SECRETS_DIR}"/shared.env
+    chmod 640 "${SECRETS_DIR}"/shared.env
+    ok ""${SECRETS_DIR}"/shared.env создан (640, root:ai-workers)"
 fi
 
 # --- n8n.env ---
-step "0.4.2" "Создание ${SECRETS_DIR:-/opt/secrets}/n8n.env"
+step "0.4.2" "Создание "${SECRETS_DIR}"/n8n.env"
 N8N_ENV_CONTENT='# n8n-specific secrets
 # ВНИМАНИЕ: замените плейсхолдер на реальный ключ Linear API после разворачивания!
 
-source ${SECRETS_DIR:-/opt/secrets}/shared.env
+source "${SECRETS_DIR}"/shared.env
 LINEAR_API_KEY=lin_api_your_linear_key_here
 '
 
-if [[ -f "${SECRETS_DIR:-/opt/secrets}/n8n.env" ]]; then
-    skip "${SECRETS_DIR:-/opt/secrets}/n8n.env уже существует"
+if [[ -f ""${SECRETS_DIR}"/n8n.env" ]]; then
+    skip ""${SECRETS_DIR}"/n8n.env уже существует"
 else
-    echo "${N8N_ENV_CONTENT}" > ${SECRETS_DIR:-/opt/secrets}/n8n.env
-    chown n8n_user:n8n_user ${SECRETS_DIR:-/opt/secrets}/n8n.env
-    chmod 600 ${SECRETS_DIR:-/opt/secrets}/n8n.env
-    ok "${SECRETS_DIR:-/opt/secrets}/n8n.env создан (600, n8n_user:n8n_user)"
+    echo "${N8N_ENV_CONTENT}" > "${SECRETS_DIR}"/n8n.env
+    chown n8n_user:n8n_user "${SECRETS_DIR}"/n8n.env
+    chmod 600 "${SECRETS_DIR}"/n8n.env
+    ok ""${SECRETS_DIR}"/n8n.env создан (600, n8n_user:n8n_user)"
 fi
 
 # --- openclaw.env ---
-step "0.4.3" "Создание ${SECRETS_DIR:-/opt/secrets}/openclaw.env"
+step "0.4.3" "Создание "${SECRETS_DIR}"/openclaw.env"
 OPENCLAW_ENV_CONTENT='# OpenClaw-specific secrets
-source ${SECRETS_DIR:-/opt/secrets}/shared.env
+source "${SECRETS_DIR}"/shared.env
 '
 
-if [[ -f "${SECRETS_DIR:-/opt/secrets}/openclaw.env" ]]; then
-    skip "${SECRETS_DIR:-/opt/secrets}/openclaw.env уже существует"
+if [[ -f ""${SECRETS_DIR}"/openclaw.env" ]]; then
+    skip ""${SECRETS_DIR}"/openclaw.env уже существует"
 else
-    echo "${OPENCLAW_ENV_CONTENT}" > ${SECRETS_DIR:-/opt/secrets}/openclaw.env
-    chown openclaw:openclaw ${SECRETS_DIR:-/opt/secrets}/openclaw.env
-    chmod 600 ${SECRETS_DIR:-/opt/secrets}/openclaw.env
-    ok "${SECRETS_DIR:-/opt/secrets}/openclaw.env создан (600, openclaw:openclaw)"
+    echo "${OPENCLAW_ENV_CONTENT}" > "${SECRETS_DIR}"/openclaw.env
+    chown openclaw:openclaw "${SECRETS_DIR}"/openclaw.env
+    chmod 600 "${SECRETS_DIR}"/openclaw.env
+    ok ""${SECRETS_DIR}"/openclaw.env создан (600, openclaw:openclaw)"
 fi
 
 # --- antigravity.env ---
-step "0.4.4" "Создание ${SECRETS_DIR:-/opt/secrets}/antigravity.env"
+step "0.4.4" "Создание "${SECRETS_DIR}"/antigravity.env"
 ANTIGRAVITY_ENV_CONTENT='# Antigravity-specific secrets
 # ВНИМАНИЕ: замените плейсхолдер на реальный токен после разворачивания!
 
-source ${SECRETS_DIR:-/opt/secrets}/shared.env
+source "${SECRETS_DIR}"/shared.env
 ANTI_GRAVITY_TOKEN=your_antigravity_token_here
 '
 
-if [[ -f "${SECRETS_DIR:-/opt/secrets}/antigravity.env" ]]; then
-    skip "${SECRETS_DIR:-/opt/secrets}/antigravity.env уже существует"
+if [[ -f ""${SECRETS_DIR}"/antigravity.env" ]]; then
+    skip ""${SECRETS_DIR}"/antigravity.env уже существует"
 else
-    echo "${ANTIGRAVITY_ENV_CONTENT}" > ${SECRETS_DIR:-/opt/secrets}/antigravity.env
-    chown antigravity_user:antigravity_user ${SECRETS_DIR:-/opt/secrets}/antigravity.env
-    chmod 600 ${SECRETS_DIR:-/opt/secrets}/antigravity.env
-    ok "${SECRETS_DIR:-/opt/secrets}/antigravity.env создан (600, antigravity_user:antigravity_user)"
+    echo "${ANTIGRAVITY_ENV_CONTENT}" > "${SECRETS_DIR}"/antigravity.env
+    chown antigravity_user:antigravity_user "${SECRETS_DIR}"/antigravity.env
+    chmod 600 "${SECRETS_DIR}"/antigravity.env
+    ok ""${SECRETS_DIR}"/antigravity.env создан (600, antigravity_user:antigravity_user)"
 fi
 
 # --- hermes.env ---
-step "0.4.5" "Создание ${SECRETS_DIR:-/opt/secrets}/hermes.env"
+step "0.4.5" "Создание "${SECRETS_DIR}"/hermes.env"
 HERMES_ENV_CONTENT='# Hermes-specific secrets
-source ${SECRETS_DIR:-/opt/secrets}/shared.env
+source "${SECRETS_DIR}"/shared.env
 '
 
-if [[ -f "${SECRETS_DIR:-/opt/secrets}/hermes.env" ]]; then
-    skip "${SECRETS_DIR:-/opt/secrets}/hermes.env уже существует"
+if [[ -f ""${SECRETS_DIR}"/hermes.env" ]]; then
+    skip ""${SECRETS_DIR}"/hermes.env уже существует"
 else
-    echo "${HERMES_ENV_CONTENT}" > ${SECRETS_DIR:-/opt/secrets}/hermes.env
-    chown hermes:hermes ${SECRETS_DIR:-/opt/secrets}/hermes.env
-    chmod 600 ${SECRETS_DIR:-/opt/secrets}/hermes.env
-    ok "${SECRETS_DIR:-/opt/secrets}/hermes.env создан (600, hermes:hermes)"
+    echo "${HERMES_ENV_CONTENT}" > "${SECRETS_DIR}"/hermes.env
+    chown hermes:hermes "${SECRETS_DIR}"/hermes.env
+    chmod 600 "${SECRETS_DIR}"/hermes.env
+    ok ""${SECRETS_DIR}"/hermes.env создан (600, hermes:hermes)"
 fi
 
 # Добавление source в .bashrc каждого пользователя
 step "0.4.6" "Настройка автозагрузки секретов в .bashrc"
 for username in n8n_user openclaw antigravity_user hermes; do
     bashrc_file="/home/${username}/.bashrc"
-    source_line="source ${SECRETS_DIR:-/opt/secrets}/${username}.env"
+    source_line="source "${SECRETS_DIR}"/${username}.env"
 
     if grep -qF "${source_line}" "${bashrc_file}" 2>/dev/null; then
         skip "source секретов уже настроен в .bashrc для ${username}"
     else
         echo -e "\n# Автозагрузка секретов (bootstrap-phase0.sh)\n${source_line}" >> "${bashrc_file}"
-        ok "source ${SECRETS_DIR:-/opt/secrets}/${username}.env добавлен в .bashrc для ${username}"
+        ok "source "${SECRETS_DIR}"/${username}.env добавлен в .bashrc для ${username}"
     fi
 done
 
@@ -496,7 +510,7 @@ if [[ -d "/opt/config" ]]; then
     skip "Директория /opt/config/ уже существует"
 else
     mkdir -p /opt/config
-    chown "root:${GROUP_NAME:-ai-workers}" /opt/config
+    chown "root:"${GROUP_NAME}"" /opt/config
     chmod 2775 /opt/config
     ok "Директория /opt/config/ создана (2775, root:ai-workers)"
 fi
@@ -518,7 +532,7 @@ if [[ -f "/opt/config/repo-map.json" ]]; then
     skip "/opt/config/repo-map.json уже существует"
 else
     echo "${REPO_MAP_CONTENT}" > /opt/config/repo-map.json
-    chown "root:${GROUP_NAME:-ai-workers}" /opt/config/repo-map.json
+    chown "root:"${GROUP_NAME}"" /opt/config/repo-map.json
     chmod 664 /opt/config/repo-map.json
     ok "/opt/config/repo-map.json создан (664, root:ai-workers)"
 fi
@@ -546,7 +560,7 @@ if [[ -f "/opt/config/reviewer_prompt.txt" ]]; then
     skip "/opt/config/reviewer_prompt.txt уже существует"
 else
     echo "${REVIEWER_PROMPT_CONTENT}" > /opt/config/reviewer_prompt.txt
-    chown "root:${GROUP_NAME:-ai-workers}" /opt/config/reviewer_prompt.txt
+    chown "root:"${GROUP_NAME}"" /opt/config/reviewer_prompt.txt
     chmod 664 /opt/config/reviewer_prompt.txt
     ok "/opt/config/reviewer_prompt.txt создан (664, root:ai-workers)"
 fi
@@ -605,12 +619,12 @@ After=network.target
 Type=simple
 User=n8n_user
 Group=n8n_user
-EnvironmentFile=${SECRETS_DIR:-/opt/secrets}/n8n.env
-Environment=N8N_PORT=${N8N_PORT:-5678}
+EnvironmentFile="${SECRETS_DIR}"/n8n.env
+Environment=N8N_PORT="${N8N_PORT}"
 Environment=N8N_HOST=0.0.0.0
 Environment=N8N_PROTOCOL=http
 Environment=NODE_ENV=production
-Environment=WEBHOOK_URL=${N8N_WEBHOOK_URL:-https://your-vps-domain-or-ip:5678/}
+Environment=WEBHOOK_URL="${N8N_WEBHOOK_URL}"
 ExecStart=${N8N_BIN} start
 Restart=on-failure
 RestartSec=10
@@ -652,7 +666,7 @@ fi
 step "0.7" "Создание sudo-правила для n8n_user → openclaw"
 
 SUDOERS_FILE="/etc/sudoers.d/n8n-agent"
-SUDOERS_CONTENT="n8n_user ALL=(openclaw) NOPASSWD: ${SCRIPTS_DIR:-/opt/scripts}/agent_loop.sh"
+SUDOERS_CONTENT="n8n_user ALL=(openclaw) NOPASSWD: "${SCRIPTS_DIR}"/agent_loop.sh"
 
 if [[ -f "${SUDOERS_FILE}" ]]; then
     skip "Sudo-правило уже существует: ${SUDOERS_FILE}"
@@ -666,21 +680,21 @@ fi
 # 0.8 — Директория скриптов
 # =============================================================================
 
-step "0.8" "Создание директории ${SCRIPTS_DIR:-/opt/scripts}/"
+step "0.8" "Создание директории "${SCRIPTS_DIR}"/"
 
-if [[ -d "${SCRIPTS_DIR:-/opt/scripts}" ]]; then
-    skip "Директория ${SCRIPTS_DIR:-/opt/scripts}/ уже существует"
+if [[ -d ""${SCRIPTS_DIR}"" ]]; then
+    skip "Директория "${SCRIPTS_DIR}"/ уже существует"
 else
-    mkdir -p "${SCRIPTS_DIR:-/opt/scripts}"
-    chown "root:${GROUP_NAME:-ai-workers}" /opt/scripts
-    chmod 2775 "${SCRIPTS_DIR:-/opt/scripts}"
-    ok "Директория ${SCRIPTS_DIR:-/opt/scripts}/ создана (2775, root:ai-workers)"
+    mkdir -p ""${SCRIPTS_DIR}""
+    chown "root:"${GROUP_NAME}"" /opt/scripts
+    chmod 2775 ""${SCRIPTS_DIR}""
+    ok "Директория "${SCRIPTS_DIR}"/ создана (2775, root:ai-workers)"
 fi
 
 # Проверка SGID на существующей директории
 current_scripts_perm=$(stat -c "%a" /opt/scripts 2>/dev/null || echo "000")
 if [[ "${current_scripts_perm}" != "2775" ]]; then
-    chmod 2775 "${SCRIPTS_DIR:-/opt/scripts}"
+    chmod 2775 ""${SCRIPTS_DIR}""
 fi
 
 # =============================================================================
@@ -758,14 +772,14 @@ fi
 
 echo ""
 echo "──────────────────────────────────────────"
-echo "  Проверка прав на ${SECRETS_DIR:-/opt/secrets}/"
+echo "  Проверка прав на "${SECRETS_DIR}"/"
 echo "──────────────────────────────────────────"
 
-if [[ -d "${SECRETS_DIR:-/opt/secrets}" ]]; then
-    ls -la ${SECRETS_DIR:-/opt/secrets}/ 2>/dev/null || true
-    ok "Директория ${SECRETS_DIR:-/opt/secrets}/ существует"
+if [[ -d ""${SECRETS_DIR}"" ]]; then
+    ls -la "${SECRETS_DIR}"/ 2>/dev/null || true
+    ok "Директория "${SECRETS_DIR}"/ существует"
 else
-    fail "Директория ${SECRETS_DIR:-/opt/secrets}/ НЕ существует"
+    fail "Директория "${SECRETS_DIR}"/ НЕ существует"
     ((FAIL_COUNT++)) || true
 fi
 
@@ -784,14 +798,14 @@ fi
 
 echo ""
 echo "──────────────────────────────────────────"
-echo "  Проверка прав на ${SCRIPTS_DIR:-/opt/scripts}/"
+echo "  Проверка прав на "${SCRIPTS_DIR}"/"
 echo "──────────────────────────────────────────"
 
-if [[ -d "${SCRIPTS_DIR:-/opt/scripts}" ]]; then
-    ls -la ${SCRIPTS_DIR:-/opt/scripts}/ 2>/dev/null || true
-    ok "Директория ${SCRIPTS_DIR:-/opt/scripts}/ существует"
+if [[ -d ""${SCRIPTS_DIR}"" ]]; then
+    ls -la "${SCRIPTS_DIR}"/ 2>/dev/null || true
+    ok "Директория "${SCRIPTS_DIR}"/ существует"
 else
-    fail "Директория ${SCRIPTS_DIR:-/opt/scripts}/ НЕ существует"
+    fail "Директория "${SCRIPTS_DIR}"/ НЕ существует"
     ((FAIL_COUNT++)) || true
 fi
 
@@ -805,12 +819,12 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo -e "  ${CLR_GREEN}${CLR_BOLD}Phase 0 завершена успешно.${CLR_RESET}"
     echo ""
     echo "  Следующие шаги:"
-    echo "  1. Замените плейсхолдеры в ${SECRETS_DIR:-/opt/secrets}/*.env на реальные ключи"
+    echo "  1. Замените плейсхолдеры в "${SECRETS_DIR}"/*.env на реальные ключи"
     echo "  2. Настройте repo-map.json: добавьте репозитории в /opt/config/repo-map.json"
     echo "  3. Установите OpenClaw CLI от имени openclaw"
     echo "  4. Установите Antigravity CLI от имени antigravity_user"
     echo "  5. Установите Hermes CLI от имени hermes"
-    echo "  6. Создайте ${SCRIPTS_DIR:-/opt/scripts}/agent_loop.sh"
+    echo "  6. Создайте "${SCRIPTS_DIR}"/agent_loop.sh"
     echo "  7. Настройте n8n workflow через веб-интерфейс (http://<VPS>:5678)"
     echo "  8. Перезапустите n8n: systemctl restart n8n"
     echo ""
