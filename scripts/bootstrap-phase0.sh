@@ -310,7 +310,7 @@ if command -v ruff &>/dev/null; then
     RUFF_VER=$(ruff --version 2>/dev/null || echo "unknown")
     skip "ruff уже установлен: ${RUFF_VER}"
 else
-    pip3 install ruff 2>&1 | tail -1
+    pip3 install --break-system-packages ruff 2>&1 | tail -1
     if command -v ruff &>/dev/null; then
         ok "ruff установлен: $(ruff --version)"
     else
