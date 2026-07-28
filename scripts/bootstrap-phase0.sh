@@ -63,7 +63,7 @@ ask_if() {
     local min_mode="$1"
     local prompt="$2"
     local default="${3:-Y}"
-    
+
     if [[ "${MODE}" == "auto" ]]; then
         return 0
     fi
@@ -96,19 +96,16 @@ if [[ "${MODE}" != "auto" ]]; then
     echo ""
 fi
 
-# Проверка и вывод: команда существует → SKIP, иначе → выполняем и OK
+# Идемпотентное выполнение команды: если успех — ✅, иначе — ⚠️
 idempotent_cmd() {
-    local check_cmd="$1"
-    local action_cmd="$2"
-    local label="$3"
-
-    if eval "${check_cmd}" &>/dev/null; then
-        skip "${label} (уже существует)"
-        return 0
+    local desc="$1"
+    shift
+    if "$@"; then
+        echo "✅ ${desc}"
+    else
+        echo "⚠️ ${desc}"
+        return 1
     fi
-
-    eval "${action_cmd}"
-    ok "${label}"
 }
 
 # Проверка и вывод для создания файла: если файл существует → SKIP, иначе → создаём и OK
@@ -156,54 +153,37 @@ if [[ -z "${USERS[@]:-}" ]]; then
     )
 fi
 
-if [[ -z "${GIT_NAMES[@]:-}" ]]; then
-    declare -A GIT_NAMES=(
-        ["n8n_user"]="n8n Orchestrator"
-        ["openclaw"]="OpenClaw Agent"
-        ["antigravity_user"]="Antigravity Critic"
-        ["hermes"]="Hermes Agent"
-    )
-fi
-
-# Загрузка внешнего конфига (переопределяет значения выше)
+# Безопасная загрузка внешнего конфига (построчный парсинг вместо source)
 if [[ -f "${CONFIG_FILE}" ]]; then
-    source "${CONFIG_FILE}"
+    while IFS='=' read -r key value; do
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+        [[ -z "$key" || "$key" =~ ^# ]] && continue
+        case "$key" in
+            GROUP_NAME)            GROUP_NAME="$value" ;;
+            GIT_EMAIL_DOMAIN)      GIT_EMAIL_DOMAIN="$value" ;;
+            PROJECTS_DIR)          PROJECTS_DIR="$value" ;;
+            SECRETS_DIR)           SECRETS_DIR="$value" ;;
+            CONFIG_DIR)            CONFIG_DIR="$value" ;;
+            SCRIPTS_DIR)           SCRIPTS_DIR="$value" ;;
+            N8N_PORT)              N8N_PORT="$value" ;;
+            N8N_WEBHOOK_URL)       N8N_WEBHOOK_URL="$value" ;;
+            GOLANGCI_LINT_VERSION) GOLANGCI_LINT_VERSION="$value" ;;
+            MIN_DISK_SPACE_MB)     MIN_DISK_SPACE_MB="$value" ;;
+            HOME_DIR_PERMS)        HOME_DIR_PERMS="$value" ;;
+            UMASK)                 UMASK="$value" ;;
+            INSTALL_GO)            INSTALL_GO="$value" ;;
+            INSTALL_JS)            INSTALL_JS="$value" ;;
+            INSTALL_CSS)           INSTALL_CSS="$value" ;;
+            INSTALL_MD)            INSTALL_MD="$value" ;;
+            INSTALL_PHP)           INSTALL_PHP="$value" ;;
+            *) echo "⚠️ Неизвестный ключ в конфиге: $key" >&2 ;;
+        esac
+    done < "${CONFIG_FILE}"
     ok "Конфигурация загружена: ${CONFIG_FILE}"
 else
     skip "Конфиг не найден (${CONFIG_FILE}), используются значения по умолчанию"
 fi
-
-# Проверка и вывод: команда существует → SKIP, иначе → выполняем и OK
-idempotent_cmd() {
-    local check_cmd="$1"
-    local action_cmd="$2"
-    local label="$3"
-
-    if eval "${check_cmd}" &>/dev/null; then
-        skip "${label} (уже существует)"
-        return 0
-    fi
-
-    eval "${action_cmd}"
-    ok "${label}"
-}
-
-# Проверка и вывод для создания файла: если файл существует → SKIP, иначе → создаём и OK
-idempotent_file() {
-    local filepath="$1"
-    local content="$2"
-    local label="$3"
-
-    if [[ -f "${filepath}" ]]; then
-        skip "${label} (файл уже существует)"
-        return 0
-    fi
-
-    # Создаём директорию, если нужно
-    mkdir -p "$(dirname "${filepath}")"
-    echo "${content}" > "${filepath}"
-    ok "${label}"
-}
 
 # =============================================================================
 # 0.0 — Предварительные проверки
@@ -225,9 +205,14 @@ if command -v node &>/dev/null; then
     ok "Node.js установлен: ${NODE_VERSION}"
 elif ask_if "full" "Node.js не найден. Установить?"; then
     ok "Установка Node.js 20..."
-    apt-get install -y -qq curl > /dev/null 2>&1
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null 2>&1
-    apt-get install -y -qq nodejs > /dev/null 2>&1
+    echo "📦 Установка curl..."
+    apt-get install -y curl
+    curl --fail --silent --show-error -o /tmp/node-setup.sh https://deb.nodesource.com/setup_20.x \
+        && echo "⚠️ Внимание: выполняется скачанный скрипт. Убедитесь, что URL доверенный: https://deb.nodesource.com/setup_20.x" \
+        && bash /tmp/node-setup.sh \
+        && rm -f /tmp/node-setup.sh
+    echo "📦 Установка Node.js..."
+    apt-get install -y nodejs
     if command -v node &>/dev/null; then
         ok "Node.js установлен: $(node --version)"
     else
@@ -252,7 +237,8 @@ if command -v python3 &>/dev/null; then
     PY_VERSION=$(python3 --version 2>/dev/null || echo "unknown")
     ok "Python 3 установлен: ${PY_VERSION}"
 elif ask_if "full" "Python 3 не найден. Установить?"; then
-    apt-get install -y -qq python3 python3-pip > /dev/null 2>&1
+    echo "📦 Установка Python 3 и pip..."
+    apt-get install -y python3 python3-pip
     ok "Python 3 установлен: $(python3 --version)"
 else
     fail "Python 3 обязателен. Прерывание."
@@ -262,7 +248,8 @@ fi
 if command -v pip3 &>/dev/null; then
     ok "pip3 установлен"
 else
-    apt-get install -y -qq python3-pip > /dev/null 2>&1
+    echo "📦 Установка pip3..."
+    apt-get install -y python3-pip
     ok "pip3 установлен"
 fi
 
@@ -277,7 +264,7 @@ fi
 # Проверка дискового пространства
 AVAIL_SPACE=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
 if [[ "${AVAIL_SPACE}" -lt "${MIN_DISK_SPACE_MB}" ]]; then
-    fail "Недостаточно места на диске: ${AVAIL_SPACE}M свободно (требуется минимум "${MIN_DISK_SPACE_MB}"M)"
+    fail "Недостаточно места на диске: ${AVAIL_SPACE}M свободно (требуется минимум ${MIN_DISK_SPACE_MB}M)"
     exit 1
 fi
 ok "Свободное место на диске: ${AVAIL_SPACE}M"
@@ -287,7 +274,8 @@ if command -v git &>/dev/null; then
     GIT_VERSION=$(git --version 2>/dev/null || echo "unknown")
     ok "Git установлен: ${GIT_VERSION}"
 elif ask_if "full" "Git не найден. Установить?"; then
-    apt-get install -y -qq git > /dev/null 2>&1
+    echo "📦 Установка Git..."
+    apt-get install -y git
     ok "Git установлен: $(git --version)"
 else
     fail "Git обязателен. Прерывание."
@@ -298,7 +286,8 @@ fi
 if command -v curl &>/dev/null; then
     ok "curl установлен"
 elif ask_if "full" "curl не найден. Установить?"; then
-    apt-get install -y -qq curl > /dev/null 2>&1
+    echo "📦 Установка curl..."
+    apt-get install -y curl
     ok "curl установлен"
 else
     fail "curl обязателен. Прерывание."
@@ -309,7 +298,8 @@ fi
 if command -v gcc &>/dev/null && command -v g++ &>/dev/null; then
     ok "build-essential (gcc/g++) установлен"
 elif ask_if "full" "build-essential не найден. Установить?"; then
-    apt-get install -y -qq build-essential > /dev/null 2>&1
+    echo "📦 Установка build-essential..."
+    apt-get install -y build-essential
     ok "build-essential установлен"
 else
     fail "build-essential обязателен. Прерывание."
@@ -320,15 +310,15 @@ fi
 # 0.1 — Пользователи и группы
 # =============================================================================
 
-step "0.1" "Создание пользователей и группы ai-workers"
+step "0.1" "Создание пользователей и группы ${GROUP_NAME}"
 
-# Создание группы ai-workers
-idempotent_cmd \
-    "getent group ""${GROUP_NAME}""" \
-    "groupadd ""${GROUP_NAME}""" \
-    "Группа ai-workers"
-
-
+# Создание группы
+if getent group "${GROUP_NAME}" &>/dev/null; then
+    skip "Группа ${GROUP_NAME} (уже существует)"
+else
+    groupadd "${GROUP_NAME}"
+    ok "Группа ${GROUP_NAME}"
+fi
 
 for user_entry in "${USERS[@]}"; do
     username="${user_entry%%:*}"
@@ -337,16 +327,16 @@ for user_entry in "${USERS[@]}"; do
     if id "${username}" &>/dev/null; then
         skip "Пользователь ${username} уже существует"
     else
-        useradd -m -G ""${GROUP_NAME}"" -s /bin/bash -c "${description}" "${username}"
+        useradd -m -G "${GROUP_NAME}" -s /bin/bash -c "${description}" "${username}"
         ok "Пользователь ${username} создан (${description})"
     fi
 
-    # Убедиться, что пользователь в группе ai-workers (на случай, если был создан ранее без неё)
-    if id -nG "${username}" | grep -qw ""${GROUP_NAME}""; then
-        skip "  └─ ${username} уже в группе ai-workers"
+    # Убедиться, что пользователь в группе (на случай, если был создан ранее без неё)
+    if id -nG "${username}" | grep -qw "${GROUP_NAME}"; then
+        skip "  └─ ${username} уже в группе ${GROUP_NAME}"
     else
-        usermod -aG ai-workers "${username}"
-        ok "  └─ ${username} добавлен в группу ai-workers"
+        usermod -aG "${GROUP_NAME}" "${username}"
+        ok "  └─ ${username} добавлен в группу ${GROUP_NAME}"
     fi
 done
 
@@ -360,33 +350,30 @@ for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
 
     # Создание директории проектов
-    projects_dir="${PROJECTS_DIR:-/srv/projects}"
+    projects_dir="${PROJECTS_DIR}"
     if [[ -d "${projects_dir}" ]]; then
-        skip "/srv/projects уже существует"
+        skip "${PROJECTS_DIR} уже существует"
     else
-        # /srv/projects managed separately
-        # permissions set at /srv/projects level
-        # SGID set at /srv/projects level
-        ok "Используется /srv/projects"
+        ok "Используется ${PROJECTS_DIR}"
     fi
 
-    # umask 0002 в .bashrc
+    # umask в .bashrc
     bashrc_file="${user_home}/.bashrc"
-    if grep -q "^umask 0002" "${bashrc_file}" 2>/dev/null; then
-        skip "umask 0002 уже настроен в ${bashrc_file}"
+    if grep -q "^umask ${UMASK}" "${bashrc_file}" 2>/dev/null; then
+        skip "umask ${UMASK} уже настроен в ${bashrc_file}"
     else
-        echo -e "\n# Установлено bootstrap-phase0.sh — общий доступ через SGID\numask 0002" >> "${bashrc_file}"
-        ok "umask 0002 добавлен в ${bashrc_file}"
+        echo -e "\n# Установлено bootstrap-phase0.sh — общий доступ через SGID\numask ${UMASK}" >> "${bashrc_file}"
+        ok "umask ${UMASK} добавлен в ${bashrc_file}"
     fi
 done
 
 # Настройка .gitconfig для каждого пользователя
 declare -A GIT_CONFIGS
 GIT_CONFIGS=(
-    ["n8n_user"]="n8n Orchestrator:n8n@"${GIT_EMAIL_DOMAIN}""
-    ["openclaw"]="OpenClaw Agent:openclaw@"${GIT_EMAIL_DOMAIN}""
-    ["antigravity_user"]="Antigravity Critic:antigravity@"${GIT_EMAIL_DOMAIN}""
-    ["hermes"]="Hermes Agent:hermes@"${GIT_EMAIL_DOMAIN}""
+    ["n8n_user"]="n8n Orchestrator:n8n@${GIT_EMAIL_DOMAIN}"
+    ["openclaw"]="OpenClaw Agent:openclaw@${GIT_EMAIL_DOMAIN}"
+    ["antigravity_user"]="Antigravity Critic:antigravity@${GIT_EMAIL_DOMAIN}"
+    ["hermes"]="Hermes Agent:hermes@${GIT_EMAIL_DOMAIN}"
 )
 
 for username in "${!GIT_CONFIGS[@]}"; do
@@ -414,15 +401,15 @@ for username in "${!GIT_CONFIGS[@]}"; do
     fi
 done
 
-# SGID-бит на домашних директориях (на случай, если созданы ранее без 2775)
+# SGID-бит на домашних директориях (на случай, если созданы ранее без нужных прав)
 step "0.2b" "Проверка SGID-бита на домашних директориях"
 for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
     current_perm=$(stat -c "%a" "${user_home}" 2>/dev/null || echo "000")
-    if [[ "${current_perm}" == "2775" ]]; then
+    if [[ "${current_perm}" == "${HOME_DIR_PERMS}" ]]; then
         skip "SGID уже установлен на ${user_home}"
     else
-        chmod 2775 "${user_home}"
+        chmod "${HOME_DIR_PERMS}" "${user_home}"
         ok "SGID-бит установлен на ${user_home} (было ${current_perm})"
     fi
 done
@@ -439,12 +426,16 @@ if command -v ruff &>/dev/null; then
     RUFF_VER=$(ruff --version 2>/dev/null || echo "unknown")
     skip "ruff уже установлен: ${RUFF_VER}"
 else
-    pip3 install --break-system-packages ruff 2>&1 | tail -1
+    pip3 install --break-system-packages ruff
     if command -v ruff &>/dev/null; then
         ok "ruff установлен: $(ruff --version)"
     else
         # Альтернативный способ — через официальный скрипт
-        curl -LsSf https://astral.sh/ruff/install.sh | sh 2>&1 || true
+        RUFF_INSTALL_URL="https://astral.sh/ruff/install.sh"
+        curl --fail --silent --show-error -o /tmp/ruff-install.sh "${RUFF_INSTALL_URL}" \
+            && echo "⚠️ Внимание: выполняется скачанный скрипт. Убедитесь, что URL доверенный: ${RUFF_INSTALL_URL}" \
+            && bash /tmp/ruff-install.sh 2>&1 || true \
+            && rm -f /tmp/ruff-install.sh
         if [[ -f "${HOME}/.cargo/bin/ruff" ]]; then
             mv "${HOME}/.cargo/bin/ruff" /usr/local/bin/ruff
             chmod 755 /usr/local/bin/ruff
@@ -464,7 +455,7 @@ else
     # Установка Go, если нет
     if ! command -v go &>/dev/null; then
         step "0.3.2a" "Установка Go"
-        apt-get update -qq && apt-get install -y -qq golang-go 2>&1 | tail -1
+        apt-get update && apt-get install -y golang-go
         if command -v go &>/dev/null; then
             ok "Go установлен: $(go version)"
         else
@@ -477,7 +468,11 @@ else
         GL_VER=$(golangci-lint --version 2>/dev/null | head -1 || echo "unknown")
         skip "golangci-lint уже установлен: ${GL_VER}"
     else
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}" 2>&1 | tail -3
+        GOLANGCI_LINT_URL="https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh"
+        curl --fail --silent --show-error -o /tmp/golangci-lint-install.sh "${GOLANGCI_LINT_URL}" \
+            && echo "⚠️ Внимание: выполняется скачанный скрипт. Убедитесь, что URL доверенный: ${GOLANGCI_LINT_URL}" \
+            && bash /tmp/golangci-lint-install.sh -b /usr/local/bin "${GOLANGCI_LINT_VERSION}" \
+            && rm -f /tmp/golangci-lint-install.sh
         chmod 755 /usr/local/bin/golangci-lint 2>/dev/null || true
         if command -v golangci-lint &>/dev/null; then
             ok "golangci-lint установлен: $(golangci-lint --version 2>/dev/null | head -1)"
@@ -492,17 +487,17 @@ if [[ "${INSTALL_JS}" != "true" ]]; then
     skip "eslint пропущен"
 else
     step "0.3.3" "Установка eslint (JS/TS)"
-if command -v eslint &>/dev/null; then
-    ESL_VER=$(eslint --version 2>/dev/null || echo "unknown")
-    skip "eslint уже установлен: ${ESL_VER}"
-else
-    npm install -g eslint 2>&1 | tail -3
     if command -v eslint &>/dev/null; then
-        ok "eslint установлен: $(eslint --version)"
+        ESL_VER=$(eslint --version 2>/dev/null || echo "unknown")
+        skip "eslint уже установлен: ${ESL_VER}"
     else
-        fail "Не удалось установить eslint"
+        npm install -g eslint
+        if command -v eslint &>/dev/null; then
+            ok "eslint установлен: $(eslint --version)"
+        else
+            fail "Не удалось установить eslint"
+        fi
     fi
-fi
 fi
 
 # --- stylelint (CSS) ---
@@ -510,17 +505,17 @@ if [[ "${INSTALL_CSS}" != "true" ]]; then
     skip "stylelint пропущен"
 else
     step "0.3.4" "Установка stylelint (CSS)"
-if command -v stylelint &>/dev/null; then
-    SL_VER=$(stylelint --version 2>/dev/null || echo "unknown")
-    skip "stylelint уже установлен: ${SL_VER}"
-else
-    npm install -g stylelint stylelint-config-standard 2>&1 | tail -3
     if command -v stylelint &>/dev/null; then
-        ok "stylelint установлен: $(stylelint --version)"
+        SL_VER=$(stylelint --version 2>/dev/null || echo "unknown")
+        skip "stylelint уже установлен: ${SL_VER}"
     else
-        fail "Не удалось установить stylelint"
+        npm install -g stylelint stylelint-config-standard
+        if command -v stylelint &>/dev/null; then
+            ok "stylelint установлен: $(stylelint --version)"
+        else
+            fail "Не удалось установить stylelint"
+        fi
     fi
-fi
 fi
 
 # --- markdownlint-cli (Markdown) ---
@@ -528,17 +523,17 @@ if [[ "${INSTALL_MD}" != "true" ]]; then
     skip "markdownlint-cli пропущен"
 else
     step "0.3.5" "Установка markdownlint-cli (Markdown)"
-if command -v markdownlint &>/dev/null; then
-    MDL_VER=$(markdownlint --version 2>/dev/null || echo "unknown")
-    skip "markdownlint уже установлен: ${MDL_VER}"
-else
-    npm install -g markdownlint-cli 2>&1 | tail -3
     if command -v markdownlint &>/dev/null; then
-        ok "markdownlint установлен: $(markdownlint --version)"
+        MDL_VER=$(markdownlint --version 2>/dev/null || echo "unknown")
+        skip "markdownlint уже установлен: ${MDL_VER}"
     else
-        fail "Не удалось установить markdownlint-cli"
+        npm install -g markdownlint-cli
+        if command -v markdownlint &>/dev/null; then
+            ok "markdownlint установлен: $(markdownlint --version)"
+        else
+            fail "Не удалось установить markdownlint-cli"
+        fi
     fi
-fi
 fi
 
 # --- phpcs (PHP) ---
@@ -550,8 +545,8 @@ else
         PCS_VER=$(phpcs --version 2>/dev/null || echo "unknown")
         skip "phpcs уже установлен: ${PCS_VER}"
     else
-        apt-get install -y -qq php-pear 2>&1 | tail -1
-        pear install PHP_CodeSniffer 2>&1 | tail -3
+        apt-get install -y php-pear
+        pear install PHP_CodeSniffer
         if command -v phpcs &>/dev/null; then
             ok "phpcs установлен"
         else
@@ -564,20 +559,20 @@ fi
 # 0.4 — Секреты
 # =============================================================================
 
-step "0.4" "Настройка структуры секретов ("${SECRETS_DIR}"/)"
+step "0.4" "Настройка структуры секретов (${SECRETS_DIR}/)"
 
-# Создание директории "${SECRETS_DIR}"/
-if [[ -d ""${SECRETS_DIR}"" ]]; then
-    skip "Директория "${SECRETS_DIR}"/ уже существует"
+# Создание директории секретов
+if [[ -d "${SECRETS_DIR}" ]]; then
+    skip "Директория ${SECRETS_DIR}/ уже существует"
 else
     mkdir -p "${SECRETS_DIR}"
     chown root:root "${SECRETS_DIR}"
     chmod 750 "${SECRETS_DIR}"
-    ok "Директория "${SECRETS_DIR}"/ создана (750, root:root)"
+    ok "Директория ${SECRETS_DIR}/ создана (750, root:root)"
 fi
 
 # --- shared.env ---
-step "0.4.1" "Создание "${SECRETS_DIR}"/shared.env"
+step "0.4.1" "Создание ${SECRETS_DIR}/shared.env"
 SHARED_ENV_CONTENT='# Shared secrets — подключается всеми агентами через source
 # ВНИМАНИЕ: замените плейсхолдеры на реальные значения после разворачивания!
 
@@ -585,92 +580,92 @@ DEEPSEEK_API_KEY=sk_your_deepseek_key_here
 GITHUB_TOKEN=ghp_your_github_pat_here
 '
 
-if [[ -f ""${SECRETS_DIR}"/shared.env" ]]; then
-    skip ""${SECRETS_DIR}"/shared.env уже существует"
+if [[ -f "${SECRETS_DIR}/shared.env" ]]; then
+    skip "${SECRETS_DIR}/shared.env уже существует"
 else
-    echo "${SHARED_ENV_CONTENT}" > "${SECRETS_DIR}"/shared.env
-    chown "root:"${GROUP_NAME}"" "${SECRETS_DIR}"/shared.env
-    chmod 640 "${SECRETS_DIR}"/shared.env
-    ok ""${SECRETS_DIR}"/shared.env создан (640, root:ai-workers)"
+    echo "${SHARED_ENV_CONTENT}" > "${SECRETS_DIR}/shared.env"
+    chown "root:${GROUP_NAME}" "${SECRETS_DIR}/shared.env"
+    chmod 640 "${SECRETS_DIR}/shared.env"
+    ok "${SECRETS_DIR}/shared.env создан (640, root:${GROUP_NAME})"
 fi
 
 # --- n8n.env ---
-step "0.4.2" "Создание "${SECRETS_DIR}"/n8n.env"
-N8N_ENV_CONTENT='# n8n-specific secrets
+step "0.4.2" "Создание ${SECRETS_DIR}/n8n.env"
+N8N_ENV_CONTENT="# n8n-specific secrets
 # ВНИМАНИЕ: замените плейсхолдер на реальный ключ Linear API после разворачивания!
 
-source "${SECRETS_DIR}"/shared.env
+source ${SECRETS_DIR}/shared.env
 LINEAR_API_KEY=lin_api_your_linear_key_here
-'
+"
 
-if [[ -f ""${SECRETS_DIR}"/n8n.env" ]]; then
-    skip ""${SECRETS_DIR}"/n8n.env уже существует"
+if [[ -f "${SECRETS_DIR}/n8n.env" ]]; then
+    skip "${SECRETS_DIR}/n8n.env уже существует"
 else
-    echo "${N8N_ENV_CONTENT}" > "${SECRETS_DIR}"/n8n.env
-    chown n8n_user:n8n_user "${SECRETS_DIR}"/n8n.env
-    chmod 600 "${SECRETS_DIR}"/n8n.env
-    ok ""${SECRETS_DIR}"/n8n.env создан (600, n8n_user:n8n_user)"
+    echo "${N8N_ENV_CONTENT}" > "${SECRETS_DIR}/n8n.env"
+    chown n8n_user:n8n_user "${SECRETS_DIR}/n8n.env"
+    chmod 600 "${SECRETS_DIR}/n8n.env"
+    ok "${SECRETS_DIR}/n8n.env создан (600, n8n_user:n8n_user)"
 fi
 
 # --- openclaw.env ---
-step "0.4.3" "Создание "${SECRETS_DIR}"/openclaw.env"
-OPENCLAW_ENV_CONTENT='# OpenClaw-specific secrets
-source "${SECRETS_DIR}"/shared.env
-'
+step "0.4.3" "Создание ${SECRETS_DIR}/openclaw.env"
+OPENCLAW_ENV_CONTENT="# OpenClaw-specific secrets
+source ${SECRETS_DIR}/shared.env
+"
 
-if [[ -f ""${SECRETS_DIR}"/openclaw.env" ]]; then
-    skip ""${SECRETS_DIR}"/openclaw.env уже существует"
+if [[ -f "${SECRETS_DIR}/openclaw.env" ]]; then
+    skip "${SECRETS_DIR}/openclaw.env уже существует"
 else
-    echo "${OPENCLAW_ENV_CONTENT}" > "${SECRETS_DIR}"/openclaw.env
-    chown openclaw:openclaw "${SECRETS_DIR}"/openclaw.env
-    chmod 600 "${SECRETS_DIR}"/openclaw.env
-    ok ""${SECRETS_DIR}"/openclaw.env создан (600, openclaw:openclaw)"
+    echo "${OPENCLAW_ENV_CONTENT}" > "${SECRETS_DIR}/openclaw.env"
+    chown openclaw:openclaw "${SECRETS_DIR}/openclaw.env"
+    chmod 600 "${SECRETS_DIR}/openclaw.env"
+    ok "${SECRETS_DIR}/openclaw.env создан (600, openclaw:openclaw)"
 fi
 
 # --- antigravity.env ---
-step "0.4.4" "Создание "${SECRETS_DIR}"/antigravity.env"
-ANTIGRAVITY_ENV_CONTENT='# Antigravity-specific secrets
+step "0.4.4" "Создание ${SECRETS_DIR}/antigravity.env"
+ANTIGRAVITY_ENV_CONTENT="# Antigravity-specific secrets
 # ВНИМАНИЕ: замените плейсхолдер на реальный токен после разворачивания!
 
-source "${SECRETS_DIR}"/shared.env
+source ${SECRETS_DIR}/shared.env
 ANTI_GRAVITY_TOKEN=your_antigravity_token_here
-'
+"
 
-if [[ -f ""${SECRETS_DIR}"/antigravity.env" ]]; then
-    skip ""${SECRETS_DIR}"/antigravity.env уже существует"
+if [[ -f "${SECRETS_DIR}/antigravity.env" ]]; then
+    skip "${SECRETS_DIR}/antigravity.env уже существует"
 else
-    echo "${ANTIGRAVITY_ENV_CONTENT}" > "${SECRETS_DIR}"/antigravity.env
-    chown antigravity_user:antigravity_user "${SECRETS_DIR}"/antigravity.env
-    chmod 600 "${SECRETS_DIR}"/antigravity.env
-    ok ""${SECRETS_DIR}"/antigravity.env создан (600, antigravity_user:antigravity_user)"
+    echo "${ANTIGRAVITY_ENV_CONTENT}" > "${SECRETS_DIR}/antigravity.env"
+    chown antigravity_user:antigravity_user "${SECRETS_DIR}/antigravity.env"
+    chmod 600 "${SECRETS_DIR}/antigravity.env"
+    ok "${SECRETS_DIR}/antigravity.env создан (600, antigravity_user:antigravity_user)"
 fi
 
 # --- hermes.env ---
-step "0.4.5" "Создание "${SECRETS_DIR}"/hermes.env"
-HERMES_ENV_CONTENT='# Hermes-specific secrets
-source "${SECRETS_DIR}"/shared.env
-'
+step "0.4.5" "Создание ${SECRETS_DIR}/hermes.env"
+HERMES_ENV_CONTENT="# Hermes-specific secrets
+source ${SECRETS_DIR}/shared.env
+"
 
-if [[ -f ""${SECRETS_DIR}"/hermes.env" ]]; then
-    skip ""${SECRETS_DIR}"/hermes.env уже существует"
+if [[ -f "${SECRETS_DIR}/hermes.env" ]]; then
+    skip "${SECRETS_DIR}/hermes.env уже существует"
 else
-    echo "${HERMES_ENV_CONTENT}" > "${SECRETS_DIR}"/hermes.env
-    chown hermes:hermes "${SECRETS_DIR}"/hermes.env
-    chmod 600 "${SECRETS_DIR}"/hermes.env
-    ok ""${SECRETS_DIR}"/hermes.env создан (600, hermes:hermes)"
+    echo "${HERMES_ENV_CONTENT}" > "${SECRETS_DIR}/hermes.env"
+    chown hermes:hermes "${SECRETS_DIR}/hermes.env"
+    chmod 600 "${SECRETS_DIR}/hermes.env"
+    ok "${SECRETS_DIR}/hermes.env создан (600, hermes:hermes)"
 fi
 
 # Добавление source в .bashrc каждого пользователя
 step "0.4.6" "Настройка автозагрузки секретов в .bashrc"
 for username in n8n_user openclaw antigravity_user hermes; do
     bashrc_file="/home/${username}/.bashrc"
-    source_line="source "${SECRETS_DIR}"/${username}.env"
+    source_line="source ${SECRETS_DIR}/${username}.env"
 
     if grep -qF "${source_line}" "${bashrc_file}" 2>/dev/null; then
         skip "source секретов уже настроен в .bashrc для ${username}"
     else
         echo -e "\n# Автозагрузка секретов (bootstrap-phase0.sh)\n${source_line}" >> "${bashrc_file}"
-        ok "source "${SECRETS_DIR}"/${username}.env добавлен в .bashrc для ${username}"
+        ok "source ${SECRETS_DIR}/${username}.env добавлен в .bashrc для ${username}"
     fi
 done
 
@@ -678,42 +673,42 @@ done
 # 0.5 — Конфигурация
 # =============================================================================
 
-step "0.5" "Настройка структуры конфигурации (/opt/config/)"
+step "0.5" "Настройка структуры конфигурации (${CONFIG_DIR}/)"
 
-# Создание директории /opt/config/
-if [[ -d "/opt/config" ]]; then
-    skip "Директория /opt/config/ уже существует"
+# Создание директории конфигурации
+if [[ -d "${CONFIG_DIR}" ]]; then
+    skip "Директория ${CONFIG_DIR}/ уже существует"
 else
-    mkdir -p /opt/config
-    chown "root:"${GROUP_NAME}"" /opt/config
-    chmod 2775 /opt/config
-    ok "Директория /opt/config/ создана (2775, root:ai-workers)"
+    mkdir -p "${CONFIG_DIR}"
+    chown "root:${GROUP_NAME}" "${CONFIG_DIR}"
+    chmod 2775 "${CONFIG_DIR}"
+    ok "Директория ${CONFIG_DIR}/ создана (2775, root:${GROUP_NAME})"
 fi
 
 # Проверка SGID на существующей директории
-current_config_perm=$(stat -c "%a" /opt/config 2>/dev/null || echo "000")
+current_config_perm=$(stat -c "%a" "${CONFIG_DIR}" 2>/dev/null || echo "000")
 if [[ "${current_config_perm}" != "2775" ]]; then
-    chmod 2775 /opt/config
+    chmod 2775 "${CONFIG_DIR}"
 fi
 
 # --- repo-map.json ---
-step "0.5.1" "Создание /opt/config/repo-map.json"
+step "0.5.1" "Создание ${CONFIG_DIR}/repo-map.json"
 REPO_MAP_CONTENT='{
   "repos": []
 }
 '
 
-if [[ -f "/opt/config/repo-map.json" ]]; then
-    skip "/opt/config/repo-map.json уже существует"
+if [[ -f "${CONFIG_DIR}/repo-map.json" ]]; then
+    skip "${CONFIG_DIR}/repo-map.json уже существует"
 else
-    echo "${REPO_MAP_CONTENT}" > /opt/config/repo-map.json
-    chown "root:"${GROUP_NAME}"" /opt/config/repo-map.json
-    chmod 664 /opt/config/repo-map.json
-    ok "/opt/config/repo-map.json создан (664, root:ai-workers)"
+    echo "${REPO_MAP_CONTENT}" > "${CONFIG_DIR}/repo-map.json"
+    chown "root:${GROUP_NAME}" "${CONFIG_DIR}/repo-map.json"
+    chmod 664 "${CONFIG_DIR}/repo-map.json"
+    ok "${CONFIG_DIR}/repo-map.json создан (664, root:${GROUP_NAME})"
 fi
 
 # --- reviewer_prompt.md ---
-step "0.5.2" "Создание /opt/config/reviewer_prompt.md"
+step "0.5.2" "Создание ${CONFIG_DIR}/reviewer_prompt.md"
 REVIEWER_PROMPT_CONTENT='You are a Senior Staff Security and QA Engineer. Your task is to mercilessly review the provided code diff and ensure it meets the business requirements without introducing bugs.
 
 Rules:
@@ -731,13 +726,13 @@ Rules:
 6. Use "approve" ONLY if you found zero issues. Be conservative.
 '
 
-if [[ -f "/opt/config/reviewer_prompt.md" ]]; then
-    skip "/opt/config/reviewer_prompt.md уже существует"
+if [[ -f "${CONFIG_DIR}/reviewer_prompt.md" ]]; then
+    skip "${CONFIG_DIR}/reviewer_prompt.md уже существует"
 else
-    echo "${REVIEWER_PROMPT_CONTENT}" > /opt/config/reviewer_prompt.md
-    chown "root:"${GROUP_NAME}"" /opt/config/reviewer_prompt.md
-    chmod 664 /opt/config/reviewer_prompt.md
-    ok "/opt/config/reviewer_prompt.md создан (664, root:ai-workers)"
+    echo "${REVIEWER_PROMPT_CONTENT}" > "${CONFIG_DIR}/reviewer_prompt.md"
+    chown "root:${GROUP_NAME}" "${CONFIG_DIR}/reviewer_prompt.md"
+    chmod 664 "${CONFIG_DIR}/reviewer_prompt.md"
+    ok "${CONFIG_DIR}/reviewer_prompt.md создан (664, root:${GROUP_NAME})"
 fi
 
 # =============================================================================
@@ -764,7 +759,7 @@ else
         echo -e "\n# npm global prefix (bootstrap-phase0.sh)\nexport PATH=\"${NPM_PREFIX}/bin:\$PATH\"" >> "/home/n8n_user/.bashrc"
     fi
 
-    sudo -u n8n_user bash -c "export PATH=\"${NPM_PREFIX}/bin:\$PATH\" && npm install -g n8n" 2>&1 | tail -5
+    sudo -u n8n_user bash -c "export PATH=\"${NPM_PREFIX}/bin:\$PATH\" && npm install -g n8n"
     ok "n8n установлен"
 fi
 
@@ -794,12 +789,12 @@ After=network.target
 Type=simple
 User=n8n_user
 Group=n8n_user
-EnvironmentFile="${SECRETS_DIR}"/n8n.env
-Environment=N8N_PORT="${N8N_PORT}"
+EnvironmentFile=${SECRETS_DIR}/n8n.env
+Environment=N8N_PORT=${N8N_PORT}
 Environment=N8N_HOST=0.0.0.0
 Environment=N8N_PROTOCOL=http
 Environment=NODE_ENV=production
-Environment=WEBHOOK_URL="${N8N_WEBHOOK_URL}"
+Environment=WEBHOOK_URL=${N8N_WEBHOOK_URL}
 ExecStart=${N8N_BIN} start
 Restart=on-failure
 RestartSec=10
@@ -841,7 +836,7 @@ fi
 step "0.7" "Создание sudo-правила для n8n_user → openclaw"
 
 SUDOERS_FILE="/etc/sudoers.d/n8n-agent"
-SUDOERS_CONTENT="n8n_user ALL=(openclaw) NOPASSWD: "${SCRIPTS_DIR}"/agent_loop.sh"
+SUDOERS_CONTENT="n8n_user ALL=(openclaw) NOPASSWD: ${SCRIPTS_DIR}/agent_loop.sh"
 
 if [[ -f "${SUDOERS_FILE}" ]]; then
     skip "Sudo-правило уже существует: ${SUDOERS_FILE}"
@@ -855,21 +850,21 @@ fi
 # 0.8 — Директория скриптов
 # =============================================================================
 
-step "0.8" "Создание директории "${SCRIPTS_DIR}"/"
+step "0.8" "Создание директории ${SCRIPTS_DIR}/"
 
-if [[ -d ""${SCRIPTS_DIR}"" ]]; then
-    skip "Директория "${SCRIPTS_DIR}"/ уже существует"
+if [[ -d "${SCRIPTS_DIR}" ]]; then
+    skip "Директория ${SCRIPTS_DIR}/ уже существует"
 else
-    mkdir -p ""${SCRIPTS_DIR}""
-    chown "root:"${GROUP_NAME}"" /opt/scripts
-    chmod 2775 ""${SCRIPTS_DIR}""
-    ok "Директория "${SCRIPTS_DIR}"/ создана (2775, root:ai-workers)"
+    mkdir -p "${SCRIPTS_DIR}"
+    chown "root:${GROUP_NAME}" "${SCRIPTS_DIR}"
+    chmod 2775 "${SCRIPTS_DIR}"
+    ok "Директория ${SCRIPTS_DIR}/ создана (2775, root:${GROUP_NAME})"
 fi
 
 # Проверка SGID на существующей директории
-current_scripts_perm=$(stat -c "%a" /opt/scripts 2>/dev/null || echo "000")
+current_scripts_perm=$(stat -c "%a" "${SCRIPTS_DIR}" 2>/dev/null || echo "000")
 if [[ "${current_scripts_perm}" != "2775" ]]; then
-    chmod 2775 ""${SCRIPTS_DIR}""
+    chmod 2775 "${SCRIPTS_DIR}"
 fi
 
 # =============================================================================
@@ -888,10 +883,10 @@ echo "────────────────────────�
 for username in n8n_user openclaw antigravity_user hermes; do
     if id "${username}" &>/dev/null; then
         GROUPS=$(id -nG "${username}" 2>/dev/null | tr ' ' ',')
-        if echo "${GROUPS}" | grep -q "ai-workers"; then
+        if echo "${GROUPS}" | grep -q "${GROUP_NAME}"; then
             ok "Пользователь ${username}: группы = ${GROUPS}"
         else
-            fail "Пользователь ${username}: НЕ в группе ai-workers! Группы = ${GROUPS}"
+            fail "Пользователь ${username}: НЕ в группе ${GROUP_NAME}! Группы = ${GROUPS}"
             ((FAIL_COUNT++)) || true
         fi
     else
@@ -924,7 +919,7 @@ echo "────────────────────────�
 # Даём n8n время на старт (до 15 секунд)
 N8N_READY=false
 for i in $(seq 1 15); do
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz 2>/dev/null | grep -q "200"; then
+    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${N8N_PORT}/healthz" 2>/dev/null | grep -q "200"; then
         N8N_READY=true
         break
     fi
@@ -932,7 +927,7 @@ for i in $(seq 1 15); do
 done
 
 if ${N8N_READY}; then
-    ok "n8n отвечает: http://localhost:5678/healthz → 200 OK"
+    ok "n8n отвечает: http://localhost:${N8N_PORT}/healthz → 200 OK"
 else
     fail "n8n НЕ отвечает на healthz. Проверьте: systemctl status n8n"
     ((FAIL_COUNT++)) || true
@@ -947,40 +942,40 @@ fi
 
 echo ""
 echo "──────────────────────────────────────────"
-echo "  Проверка прав на "${SECRETS_DIR}"/"
+echo "  Проверка прав на ${SECRETS_DIR}/"
 echo "──────────────────────────────────────────"
 
-if [[ -d ""${SECRETS_DIR}"" ]]; then
+if [[ -d "${SECRETS_DIR}" ]]; then
     ls -la "${SECRETS_DIR}"/ 2>/dev/null || true
-    ok "Директория "${SECRETS_DIR}"/ существует"
+    ok "Директория ${SECRETS_DIR}/ существует"
 else
-    fail "Директория "${SECRETS_DIR}"/ НЕ существует"
+    fail "Директория ${SECRETS_DIR}/ НЕ существует"
     ((FAIL_COUNT++)) || true
 fi
 
 echo ""
 echo "──────────────────────────────────────────"
-echo "  Проверка прав на /opt/config/"
+echo "  Проверка прав на ${CONFIG_DIR}/"
 echo "──────────────────────────────────────────"
 
-if [[ -d "/opt/config" ]]; then
-    ls -la /opt/config/ 2>/dev/null || true
-    ok "Директория /opt/config/ существует"
+if [[ -d "${CONFIG_DIR}" ]]; then
+    ls -la "${CONFIG_DIR}"/ 2>/dev/null || true
+    ok "Директория ${CONFIG_DIR}/ существует"
 else
-    fail "Директория /opt/config/ НЕ существует"
+    fail "Директория ${CONFIG_DIR}/ НЕ существует"
     ((FAIL_COUNT++)) || true
 fi
 
 echo ""
 echo "──────────────────────────────────────────"
-echo "  Проверка прав на "${SCRIPTS_DIR}"/"
+echo "  Проверка прав на ${SCRIPTS_DIR}/"
 echo "──────────────────────────────────────────"
 
-if [[ -d ""${SCRIPTS_DIR}"" ]]; then
+if [[ -d "${SCRIPTS_DIR}" ]]; then
     ls -la "${SCRIPTS_DIR}"/ 2>/dev/null || true
-    ok "Директория "${SCRIPTS_DIR}"/ существует"
+    ok "Директория ${SCRIPTS_DIR}/ существует"
 else
-    fail "Директория "${SCRIPTS_DIR}"/ НЕ существует"
+    fail "Директория ${SCRIPTS_DIR}/ НЕ существует"
     ((FAIL_COUNT++)) || true
 fi
 
@@ -994,13 +989,13 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo -e "  ${CLR_GREEN}${CLR_BOLD}Phase 0 завершена успешно.${CLR_RESET}"
     echo ""
     echo "  Следующие шаги:"
-    echo "  1. Замените плейсхолдеры в "${SECRETS_DIR}"/*.env на реальные ключи"
-    echo "  2. Настройте repo-map.json: добавьте репозитории в /opt/config/repo-map.json"
+    echo "  1. Замените плейсхолдеры в ${SECRETS_DIR}/*.env на реальные ключи"
+    echo "  2. Настройте repo-map.json: добавьте репозитории в ${CONFIG_DIR}/repo-map.json"
     echo "  3. Установите OpenClaw CLI от имени openclaw"
     echo "  4. Установите Antigravity CLI от имени antigravity_user"
     echo "  5. Установите Hermes CLI от имени hermes"
-    echo "  6. Создайте "${SCRIPTS_DIR}"/agent_loop.sh"
-    echo "  7. Настройте n8n workflow через веб-интерфейс (http://<VPS>:5678)"
+    echo "  6. Создайте ${SCRIPTS_DIR}/agent_loop.sh"
+    echo "  7. Настройте n8n workflow через веб-интерфейс (http://<VPS>:${N8N_PORT})"
     echo "  8. Перезапустите n8n: systemctl restart n8n"
     echo ""
 else
