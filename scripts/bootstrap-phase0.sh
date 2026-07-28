@@ -1072,7 +1072,7 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
         for spec in "${SECRET_SPECS[@]}"; do
             IFS='|' read -r env_file key desc <<< "$spec"
 
-            if [[ -z "${FILE_PROCESSED[$env_file]}" ]]; then
+            if [[ -z "${FILE_PROCESSED[$env_file]:-}" ]]; then
                 FILE_PROCESSED[$env_file]=1
                 echo ""
                 echo "  ─────────────────────────────────────"
