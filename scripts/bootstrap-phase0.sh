@@ -196,9 +196,10 @@ show_progress() {
     local pct=$((CURRENT_STEP * 100 / TOTAL_STEPS))
     local filled=$((CURRENT_STEP * BAR_WIDTH / TOTAL_STEPS))
     local empty=$((BAR_WIDTH - filled))
-    local bar
-    bar=$(printf '%*s' "$filled" '' | tr ' ' '█')
-    bar="${bar}$(printf '%*s' "$empty" '' | tr ' ' '░')"
+    local bar=""
+    local i
+    for ((i = 0; i < filled; i++)); do bar+="█"; done
+    for ((i = 0; i < empty; i++)); do bar+="░"; done
     echo ""
     printf "[%s] %3d%%  Шаг %d/%d: %s\n" "$bar" "$pct" "$CURRENT_STEP" "$TOTAL_STEPS" "$desc"
     echo ""
@@ -1029,16 +1030,57 @@ echo ""
 echo "══════════════════════════════════════════"
 if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo -e "  ${CLR_GREEN}${CLR_BOLD}Установка завершена успешно!${CLR_RESET}"
+
+    # Интерактивная настройка секретов
+    echo ""
+    echo "──────────────────────────────────────────"
+    echo "  ⚙️  Настройка секретов"
+    echo "──────────────────────────────────────────"
+    echo ""
+
+    ENV_FILES=(
+        "${SECRETS_DIR}/shared.env"
+        "${SECRETS_DIR}/n8n.env"
+        "${SECRETS_DIR}/openclaw.env"
+        "${SECRETS_DIR}/antigravity.env"
+        "${SECRETS_DIR}/hermes.env"
+    )
+
+    read -p "  Заполнить секреты в ${SECRETS_DIR}/*.env сейчас? [y/N]: " FILL_SECRETS
+    if [[ "${FILL_SECRETS,,}" == "y" ]]; then
+        for env_file in "${ENV_FILES[@]}"; do
+            if [[ -f "${env_file}" ]]; then
+                echo ""
+                echo "  📝 Редактирование: ${env_file}"
+                read -p "  Открыть ${env_file} в редакторе? [Y/n]: " EDIT_THIS
+                if [[ "${EDIT_THIS,,}" != "n" ]]; then
+                    ${EDITOR:-nano} "${env_file}"
+                else
+                    echo "  ⏭️  Пропущено: ${env_file}"
+                fi
+            fi
+        done
+        echo ""
+        echo "  ✅ Секреты настроены."
+    else
+        echo "  ⏭️  Пропущено. Файлы для заполнения:"
+        for env_file in "${ENV_FILES[@]}"; do
+            echo "    - ${env_file}"
+        done
+    fi
+
+    EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
+    N8N_URL="http://${EXTERNAL_IP}:${N8N_PORT}"
+
     echo ""
     echo "  Следующие шаги:"
-    echo "  1. Замените плейсхолдеры в ${SECRETS_DIR}/*.env на реальные ключи"
-    echo "  2. Настройте repo-map.json: добавьте репозитории в ${CONFIG_DIR}/repo-map.json"
-    echo "  3. Установите OpenClaw CLI от имени openclaw"
-    echo "  4. Установите Antigravity CLI от имени antigravity_user"
-    echo "  5. Установите Hermes CLI от имени hermes"
-    echo "  6. Создайте ${SCRIPTS_DIR}/agent_loop.sh"
-    echo "  7. Настройте n8n workflow через веб-интерфейс (http://<VPS>:${N8N_PORT})"
-    echo "  8. Перезапустите n8n: systemctl restart n8n"
+    echo "  1. Настройте repo-map.json: добавьте РАБОЧИЕ репозитории в ${CONFIG_DIR}/repo-map.json"
+    echo "     (не репозитории агентов, а проекты, над которыми агенты работают)"
+    echo "  2. Установите OpenClaw CLI от имени openclaw"
+    echo "  3. Установите Antigravity CLI от имени antigravity_user"
+    echo "  4. Установите Hermes CLI от имени hermes"
+    echo "  5. Создайте ${SCRIPTS_DIR}/agent_loop.sh (основной цикл агента)"
+    echo "  6. Настройте n8n workflow через веб-интерфейс: ${N8N_URL}"
     echo ""
 else
     echo -e "  ${CLR_RED}${CLR_BOLD}Установка завершена с ошибками (${FAIL_COUNT}).${CLR_RESET}"
