@@ -1093,29 +1093,12 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
             echo "     ⏭️  пропущен"
         fi
 
-        # antigravity.env
-        echo ""
-        echo "  ─────────────────────────────────────"
-        echo "  📄 ${SECRETS_DIR}/antigravity.env — критик"
-        echo ""
-
-        read -p "     ANTI_GRAVITY_TOKEN (Antigravity CLI): " val
-        if [[ -n "$val" ]]; then
-            grep -v "^ANTI_GRAVITY_TOKEN=" "${SECRETS_DIR}/antigravity.env" > "${SECRETS_DIR}/antigravity.env.tmp" 2>/dev/null
-            mv "${SECRETS_DIR}/antigravity.env.tmp" "${SECRETS_DIR}/antigravity.env" 2>/dev/null
-            echo "ANTI_GRAVITY_TOKEN=${val}" >> "${SECRETS_DIR}/antigravity.env"
-            echo "     ✅ сохранён"
-        else
-            echo "     ⏭️  пропущен"
-        fi
-
         echo ""
         echo "  ✅ Все секреты настроены."
     else
         echo "  ⏭️  Пропущено. Файлы для заполнения вручную:"
         echo "     ${SECRETS_DIR}/shared.env — DEEPSEEK_API_KEY, GITHUB_TOKEN"
         echo "     ${SECRETS_DIR}/n8n.env — LINEAR_API_KEY"
-        echo "     ${SECRETS_DIR}/antigravity.env — ANTI_GRAVITY_TOKEN"
     fi
 
     EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
