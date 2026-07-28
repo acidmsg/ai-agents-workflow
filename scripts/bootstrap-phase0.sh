@@ -185,11 +185,30 @@ else
     skip "Конфиг не найден (${CONFIG_FILE}), используются значения по умолчанию"
 fi
 
+# ─── Прогресс-бар ───
+TOTAL_STEPS=11
+CURRENT_STEP=0
+BAR_WIDTH=20
+
+show_progress() {
+    local desc="$1"
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    local pct=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+    local filled=$((CURRENT_STEP * BAR_WIDTH / TOTAL_STEPS))
+    local empty=$((BAR_WIDTH - filled))
+    local bar
+    bar=$(printf '%*s' "$filled" '' | tr ' ' '█')
+    bar="${bar}$(printf '%*s' "$empty" '' | tr ' ' '░')"
+    echo ""
+    printf "[%s] %3d%%  Шаг %d/%d: %s\n" "$bar" "$pct" "$CURRENT_STEP" "$TOTAL_STEPS" "$desc"
+    echo ""
+}
+
 # =============================================================================
 # 0.0 — Предварительные проверки
 # =============================================================================
 
-step "0.0" "Предварительные проверки"
+show_progress "Предварительные проверки"
 
 # Проверка запуска от root
 if [[ "${EUID}" -ne 0 ]]; then
@@ -310,7 +329,7 @@ fi
 # 0.1 — Пользователи и группы
 # =============================================================================
 
-step "0.1" "Создание пользователей и группы ${GROUP_NAME}"
+show_progress "Создание пользователей и группы ${GROUP_NAME}"
 
 # Создание группы
 if getent group "${GROUP_NAME}" &>/dev/null; then
@@ -344,7 +363,7 @@ done
 # 0.2 — Права и Git-конфигурация
 # =============================================================================
 
-step "0.2" "Настройка прав, umask и Git-конфигурации"
+show_progress "Настройка прав, umask и Git-конфигурации"
 
 for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
@@ -402,7 +421,7 @@ for username in "${!GIT_CONFIGS[@]}"; do
 done
 
 # SGID-бит на домашних директориях (на случай, если созданы ранее без нужных прав)
-step "0.2b" "Проверка SGID-бита на домашних директориях"
+show_progress "Проверка SGID-бита на домашних директориях"
 for username in n8n_user openclaw antigravity_user hermes; do
     user_home="/home/${username}"
     current_perm=$(stat -c "%a" "${user_home}" 2>/dev/null || echo "000")
@@ -418,7 +437,7 @@ done
 # 0.3 — Установка линтеров
 # =============================================================================
 
-step "0.3" "Установка линтеров в /usr/local/bin/"
+show_progress "Установка линтеров в /usr/local/bin/"
 
 # --- ruff (Python) ---
 step "0.3.1" "Установка ruff (Python)"
@@ -559,7 +578,7 @@ fi
 # 0.4 — Секреты
 # =============================================================================
 
-step "0.4" "Настройка структуры секретов (${SECRETS_DIR}/)"
+show_progress "Настройка структуры секретов (${SECRETS_DIR}/)"
 
 # Создание директории секретов
 if [[ -d "${SECRETS_DIR}" ]]; then
@@ -673,7 +692,7 @@ done
 # 0.5 — Конфигурация
 # =============================================================================
 
-step "0.5" "Настройка структуры конфигурации (${CONFIG_DIR}/)"
+show_progress "Настройка структуры конфигурации (${CONFIG_DIR}/)"
 
 # Создание директории конфигурации
 if [[ -d "${CONFIG_DIR}" ]]; then
@@ -739,18 +758,26 @@ fi
 # 0.6 — Установка n8n
 # =============================================================================
 
-step "0.6" "Установка n8n (npm, не Docker)"
+show_progress "Установка n8n (npm, не Docker)"
+echo "  ⏱️  ВНИМАНИЕ: если n8n ещё не установлен — установка через npm может занять 10–15 минут."
 
 # Установка n8n глобально от имени n8n_user
 step "0.6.1" "Установка n8n через npm"
-# Проверяем, установлен ли уже n8n
-if sudo -u n8n_user bash -c 'command -v n8n' &>/dev/null; then
-    N8N_VER=$(sudo -u n8n_user n8n --version 2>/dev/null || echo "unknown")
+
+# Путь к npm global prefix для n8n_user
+NPM_PREFIX="/home/n8n_user/.npm-global"
+
+# Проверяем, установлен ли уже n8n (по бинарнику в npm-prefix и через command -v с правильным PATH)
+if [[ -x "${NPM_PREFIX}/bin/n8n" ]] || sudo -u n8n_user bash -c "export PATH=\"${NPM_PREFIX}/bin:\$PATH\" && command -v n8n" &>/dev/null; then
+    N8N_VER=$(sudo -u n8n_user bash -c "export PATH=\"${NPM_PREFIX}/bin:\$PATH\" && n8n --version" 2>/dev/null || echo "unknown")
     skip "n8n уже установлен: ${N8N_VER}"
 else
+    echo "  📦 Установка n8n через npm (может занять 10–15 минут)..."
+    # ПРИМЕЧАНИЕ: большое количество warn'ов от npm (uuid-дубликаты и т.п.) —
+    # это нормально, они исходят из глубины дерева зависимостей n8n.
+
     # Убедимся, что у n8n_user есть права на глобальную установку npm
     # Настраиваем npm prefix для n8n_user, чтобы избежать EACCES
-    NPM_PREFIX="/home/n8n_user/.npm-global"
     sudo -u n8n_user mkdir -p "${NPM_PREFIX}"
     sudo -u n8n_user npm config set prefix "${NPM_PREFIX}" 2>/dev/null || true
 
@@ -833,7 +860,7 @@ fi
 # 0.7 — Sudo-правило для n8n → openclaw
 # =============================================================================
 
-step "0.7" "Создание sudo-правила для n8n_user → openclaw"
+show_progress "Создание sudo-правила для n8n_user → openclaw"
 
 SUDOERS_FILE="/etc/sudoers.d/n8n-agent"
 SUDOERS_CONTENT="n8n_user ALL=(openclaw) NOPASSWD: ${SCRIPTS_DIR}/agent_loop.sh"
@@ -850,7 +877,7 @@ fi
 # 0.8 — Директория скриптов
 # =============================================================================
 
-step "0.8" "Создание директории ${SCRIPTS_DIR}/"
+show_progress "Создание директории ${SCRIPTS_DIR}/"
 
 if [[ -d "${SCRIPTS_DIR}" ]]; then
     skip "Директория ${SCRIPTS_DIR}/ уже существует"
@@ -871,29 +898,89 @@ fi
 # 0.9 — Финальные проверки
 # =============================================================================
 
-step "0.9" "Финальные проверки"
+show_progress "Финальные проверки"
+
+# Временно отключаем set -e, чтобы одиночные сбои проверок не прерывали скрипт.
+# Все ошибки аккумулируются в FAIL_COUNT и показываются в итоговом отчёте.
+set +e
 
 FAIL_COUNT=0
+
+# ---------------------------------------------------------------------------
+# Проверка пользователей и групп
+# ---------------------------------------------------------------------------
 
 echo ""
 echo "──────────────────────────────────────────"
 echo "  Проверка пользователей и групп"
 echo "──────────────────────────────────────────"
 
+# Сколько пользователей состоит в группе
+GROUP_MEMBER_COUNT=$(getent group "${GROUP_NAME}" 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -c -v '^$' || echo "0")
+GROUP_MEMBER_COUNT=$(echo "${GROUP_MEMBER_COUNT}" | tr -d ' ')
+
+if getent group "${GROUP_NAME}" &>/dev/null; then
+    echo "  ✅ Группа ${GROUP_NAME}: ${GROUP_MEMBER_COUNT} пользователей"
+else
+    echo "  ⚠️ Группа ${GROUP_NAME}: НЕ существует"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
 for username in n8n_user openclaw antigravity_user hermes; do
     if id "${username}" &>/dev/null; then
-        GROUPS=$(id -nG "${username}" 2>/dev/null | tr ' ' ',')
-        if echo "${GROUPS}" | grep -q "${GROUP_NAME}"; then
-            ok "Пользователь ${username}: группы = ${GROUPS}"
+        UID_VAL=$(id -u "${username}" 2>/dev/null || echo "?")
+        USER_GROUPS=$(id -nG "${username}" 2>/dev/null | tr ' ' ',' || echo "?")
+        if echo "${USER_GROUPS}" | grep -q "${GROUP_NAME}"; then
+            echo "  ✅ ${username}: uid=${UID_VAL}, группы: ${USER_GROUPS}"
         else
-            fail "Пользователь ${username}: НЕ в группе ${GROUP_NAME}! Группы = ${GROUPS}"
-            ((FAIL_COUNT++)) || true
+            echo "  ⚠️ ${username}: uid=${UID_VAL}, НЕ в группе ${GROUP_NAME}! Группы: ${USER_GROUPS}"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
         fi
     else
-        fail "Пользователь ${username} НЕ существует"
-        ((FAIL_COUNT++)) || true
+        echo "  ⚠️ ${username}: НЕ существует"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
 done
+
+# ---------------------------------------------------------------------------
+# Проверка сервисов (n8n)
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "──────────────────────────────────────────"
+echo "  Проверка сервисов"
+echo "──────────────────────────────────────────"
+
+if systemctl is-active n8n &>/dev/null; then
+    N8N_SVC_STATUS=$(systemctl is-active n8n 2>/dev/null || echo "unknown")
+    echo "  ✅ n8n.service: ${N8N_SVC_STATUS}"
+else
+    N8N_SVC_STATUS=$(systemctl is-active n8n 2>/dev/null || echo "unknown")
+    echo "  ⚠️ n8n.service: ${N8N_SVC_STATUS} (ожидался active)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# Даём n8n время на старт (до 15 секунд)
+N8N_READY=false
+for i in $(seq 1 15); do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${N8N_PORT}/healthz" 2>/dev/null || echo "000")
+    if [[ "${HTTP_CODE}" == "200" ]]; then
+        N8N_READY=true
+        break
+    fi
+    sleep 1
+done
+
+if ${N8N_READY}; then
+    echo "  ✅ n8n healthz: http://localhost:${N8N_PORT}/healthz → 200 OK"
+else
+    echo "  ⚠️ n8n healthz: http://localhost:${N8N_PORT}/healthz → нет ответа"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# ---------------------------------------------------------------------------
+# Проверка линтеров
+# ---------------------------------------------------------------------------
 
 echo ""
 echo "──────────────────────────────────────────"
@@ -903,90 +990,45 @@ echo "────────────────────────�
 LINTERS=("ruff" "golangci-lint" "eslint" "stylelint" "markdownlint")
 for linter in "${LINTERS[@]}"; do
     if command -v "${linter}" &>/dev/null; then
-        VERSION=$(${linter} --version 2>/dev/null | head -1 || echo "установлен")
-        ok "${linter}: ${VERSION}"
+        LINTER_VERSION=$(${linter} --version 2>/dev/null | head -1 || echo "установлен")
+        echo "  ✅ ${linter}: ${LINTER_VERSION}"
     else
-        fail "${linter}: НЕ НАЙДЕН"
-        ((FAIL_COUNT++)) || true
+        echo "  ⚠️ ${linter}: НЕ НАЙДЕН"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
 done
 
+# ---------------------------------------------------------------------------
+# Проверка директорий
+# ---------------------------------------------------------------------------
+
 echo ""
 echo "──────────────────────────────────────────"
-echo "  Проверка n8n"
+echo "  Проверка директорий"
 echo "──────────────────────────────────────────"
 
-# Даём n8n время на старт (до 15 секунд)
-N8N_READY=false
-for i in $(seq 1 15); do
-    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${N8N_PORT}/healthz" 2>/dev/null | grep -q "200"; then
-        N8N_READY=true
-        break
+for dir in "${SECRETS_DIR}" "${CONFIG_DIR}" "${SCRIPTS_DIR}"; do
+    if [[ -d "${dir}" ]]; then
+        DIR_PERMS=$(stat -c "%a" "${dir}" 2>/dev/null || echo "???")
+        DIR_OWNER=$(stat -c "%U:%G" "${dir}" 2>/dev/null || echo "?:?")
+        echo "  ✅ ${dir}/ (права: ${DIR_PERMS}, владелец: ${DIR_OWNER})"
+    else
+        echo "  ⚠️ ${dir}/: НЕ существует"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
-    sleep 1
 done
 
-if ${N8N_READY}; then
-    ok "n8n отвечает: http://localhost:${N8N_PORT}/healthz → 200 OK"
-else
-    fail "n8n НЕ отвечает на healthz. Проверьте: systemctl status n8n"
-    ((FAIL_COUNT++)) || true
-fi
-
-if systemctl is-active n8n &>/dev/null; then
-    ok "systemd-сервис n8n активен"
-else
-    fail "systemd-сервис n8n НЕ активен"
-    ((FAIL_COUNT++)) || true
-fi
-
-echo ""
-echo "──────────────────────────────────────────"
-echo "  Проверка прав на ${SECRETS_DIR}/"
-echo "──────────────────────────────────────────"
-
-if [[ -d "${SECRETS_DIR}" ]]; then
-    ls -la "${SECRETS_DIR}"/ 2>/dev/null || true
-    ok "Директория ${SECRETS_DIR}/ существует"
-else
-    fail "Директория ${SECRETS_DIR}/ НЕ существует"
-    ((FAIL_COUNT++)) || true
-fi
-
-echo ""
-echo "──────────────────────────────────────────"
-echo "  Проверка прав на ${CONFIG_DIR}/"
-echo "──────────────────────────────────────────"
-
-if [[ -d "${CONFIG_DIR}" ]]; then
-    ls -la "${CONFIG_DIR}"/ 2>/dev/null || true
-    ok "Директория ${CONFIG_DIR}/ существует"
-else
-    fail "Директория ${CONFIG_DIR}/ НЕ существует"
-    ((FAIL_COUNT++)) || true
-fi
-
-echo ""
-echo "──────────────────────────────────────────"
-echo "  Проверка прав на ${SCRIPTS_DIR}/"
-echo "──────────────────────────────────────────"
-
-if [[ -d "${SCRIPTS_DIR}" ]]; then
-    ls -la "${SCRIPTS_DIR}"/ 2>/dev/null || true
-    ok "Директория ${SCRIPTS_DIR}/ существует"
-else
-    fail "Директория ${SCRIPTS_DIR}/ НЕ существует"
-    ((FAIL_COUNT++)) || true
-fi
+# Восстанавливаем строгий режим
+set -euo pipefail
 
 # =============================================================================
 # Итог
 # =============================================================================
 
 echo ""
-echo "══════════════════════════════════════════════════════════"
+echo "══════════════════════════════════════════"
 if [[ "${FAIL_COUNT}" -eq 0 ]]; then
-    echo -e "  ${CLR_GREEN}${CLR_BOLD}Phase 0 завершена успешно.${CLR_RESET}"
+    echo -e "  ${CLR_GREEN}${CLR_BOLD}Установка завершена успешно!${CLR_RESET}"
     echo ""
     echo "  Следующие шаги:"
     echo "  1. Замените плейсхолдеры в ${SECRETS_DIR}/*.env на реальные ключи"
@@ -999,13 +1041,13 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo "  8. Перезапустите n8n: systemctl restart n8n"
     echo ""
 else
-    echo -e "  ${CLR_RED}${CLR_BOLD}Phase 0 завершена с ошибками (${FAIL_COUNT}).${CLR_RESET}"
+    echo -e "  ${CLR_RED}${CLR_BOLD}Установка завершена с ошибками (${FAIL_COUNT}).${CLR_RESET}"
     echo ""
     echo "  Проверьте вывод выше и устраните проблемы перед продолжением."
     echo "  Скрипт идемпотентен — можно запустить повторно:"
     echo "    ssh root@VPS 'bash -s' < bootstrap-phase0.sh"
     echo ""
 fi
-echo "══════════════════════════════════════════════════════════"
+echo "══════════════════════════════════════════"
 
 exit ${FAIL_COUNT}
