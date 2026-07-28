@@ -1097,11 +1097,13 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
         read -p "     ${key} — ${desc} [${display}]: " new_value
 
         if [[ -n "$new_value" ]]; then
-            if grep -q "^${key}=" "${env_file}" 2>/dev/null; then
-                sed -i "s|^${key}=.*|${key}=${new_value}|" "${env_file}"
-            else
-                echo "${key}=${new_value}" >> "${env_file}"
+            # Удаляем старую строку с этим ключом и добавляем новую
+            # Используем grep -v вместо sed, чтобы избежать проблем со спецсимволами в значении
+            if [[ -f "${env_file}" ]]; then
+                grep -v "^${key}=" "${env_file}" > "${env_file}.tmp" 2>/dev/null || true
+                mv "${env_file}.tmp" "${env_file}"
             fi
+            echo "${key}=${new_value}" >> "${env_file}" || true
             echo "     ✅ ${key} сохранён"
         else
             echo "     ⏭️  ${key} пропущен"
