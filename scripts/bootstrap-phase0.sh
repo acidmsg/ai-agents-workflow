@@ -1066,7 +1066,7 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
             # hermes.env — коммуникатор (все ключи из shared.env)
         )
 
-    local prev_file=""
+    prev_file=""
 
     for spec in "${SECRET_SPECS[@]}"; do
         IFS='|' read -r env_file key desc <<< "$spec"
