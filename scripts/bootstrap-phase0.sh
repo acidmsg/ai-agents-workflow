@@ -1066,47 +1066,47 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
             # hermes.env — коммуникатор (все ключи из shared.env)
         )
 
-        # Группируем по файлам
-        declare -A FILE_PROCESSED
+    local prev_file=""
 
-        for spec in "${SECRET_SPECS[@]}"; do
-            IFS='|' read -r env_file key desc <<< "$spec"
+    for spec in "${SECRET_SPECS[@]}"; do
+        IFS='|' read -r env_file key desc <<< "$spec"
 
-            if [[ -z "${FILE_PROCESSED[$env_file]:-}" ]]; then
-                FILE_PROCESSED[$env_file]=1
-                echo ""
-                echo "  ─────────────────────────────────────"
-                echo "  📄 ${env_file}"
-                echo ""
-            fi
+        # Заголовок файла — только при смене файла
+        if [[ "$env_file" != "$prev_file" ]]; then
+            prev_file="$env_file"
+            echo ""
+            echo "  ─────────────────────────────────────"
+            echo "  📄 ${env_file}"
+            echo ""
+        fi
 
-            # Ищем текущее значение в файле
-            current_value=""
-            if [[ -f "${env_file}" ]]; then
-                current_value=$(grep "^${key}=" "${env_file}" 2>/dev/null | cut -d'=' -f2-)
-            fi
+        # Ищем текущее значение в файле
+        current_value=""
+        if [[ -f "${env_file}" ]]; then
+            current_value=$(grep "^${key}=" "${env_file}" 2>/dev/null | cut -d'=' -f2-)
+        fi
 
-            if [[ -z "$current_value" ]]; then
-                display="(не задан)"
-            elif [[ "$current_value" =~ your_|changeme|placeholder|^[[:space:]]*$ ]]; then
-                display="(плейсхолдер)"
+        if [[ -z "$current_value" ]]; then
+            display="(не задан)"
+        elif [[ "$current_value" =~ your_|changeme|placeholder|^[[:space:]]*$ ]]; then
+            display="(плейсхолдер)"
+        else
+            display="***"
+        fi
+
+        read -p "     ${key} — ${desc} [${display}]: " new_value
+
+        if [[ -n "$new_value" ]]; then
+            if grep -q "^${key}=" "${env_file}" 2>/dev/null; then
+                sed -i "s|^${key}=.*|${key}=${new_value}|" "${env_file}"
             else
-                display="***"
+                echo "${key}=${new_value}" >> "${env_file}"
             fi
-
-            read -p "     ${key} — ${desc} [${display}]: " new_value
-
-            if [[ -n "$new_value" ]]; then
-                if grep -q "^${key}=" "${env_file}" 2>/dev/null; then
-                    sed -i "s|^${key}=.*|${key}=${new_value}|" "${env_file}"
-                else
-                    echo "${key}=${new_value}" >> "${env_file}"
-                fi
-                echo "     ✅ ${key} сохранён"
-            else
-                echo "     ⏭️  ${key} пропущен"
-            fi
-        done
+            echo "     ✅ ${key} сохранён"
+        else
+            echo "     ⏭️  ${key} пропущен"
+        fi
+    done
 
         echo ""
         echo "  ✅ Все секреты настроены."
