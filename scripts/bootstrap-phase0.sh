@@ -1031,41 +1031,68 @@ echo "════════════════════════�
 if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo -e "  ${CLR_GREEN}${CLR_BOLD}Установка завершена успешно!${CLR_RESET}"
 
-    # Интерактивная настройка секретов
+    # Интерактивная настройка секретов (пошаговый ввод каждого ключа)
     echo ""
     echo "──────────────────────────────────────────"
     echo "  ⚙️  Настройка секретов"
     echo "──────────────────────────────────────────"
     echo ""
+    echo "  Для каждого .env файла нужно ввести значения."
+    echo "  Оставьте строку пустой и нажмите Enter чтобы пропустить."
+    echo ""
 
-    ENV_FILES=(
-        "${SECRETS_DIR}/shared.env"
-        "${SECRETS_DIR}/n8n.env"
-        "${SECRETS_DIR}/openclaw.env"
-        "${SECRETS_DIR}/antigravity.env"
-        "${SECRETS_DIR}/hermes.env"
-    )
+    # Ассоциативный массив: путь к файлу → описание
+    declare -A SECRET_KEYS
+    SECRET_KEYS["${SECRETS_DIR}/shared.env"]="Общие настройки для всех агентов"
+    SECRET_KEYS["${SECRETS_DIR}/n8n.env"]="Секреты для n8n (воркфлоу-движок)"
+    SECRET_KEYS["${SECRETS_DIR}/openclaw.env"]="Секреты для OpenClaw (AI-разработчик)"
+    SECRET_KEYS["${SECRETS_DIR}/antigravity.env"]="Секреты для Antigravity (AI-критик)"
+    SECRET_KEYS["${SECRETS_DIR}/hermes.env"]="Секреты для Hermes (AI-коммуникатор)"
 
-    read -p "  Заполнить секреты в ${SECRETS_DIR}/*.env сейчас? [y/N]: " FILL_SECRETS
-    if [[ "${FILL_SECRETS,,}" == "y" ]]; then
-        for env_file in "${ENV_FILES[@]}"; do
-            if [[ -f "${env_file}" ]]; then
-                echo ""
-                echo "  📝 Редактирование: ${env_file}"
-                read -p "  Открыть ${env_file} в редакторе? [Y/n]: " EDIT_THIS
-                if [[ "${EDIT_THIS,,}" != "n" ]]; then
-                    ${EDITOR:-nano} "${env_file}"
-                else
-                    echo "  ⏭️  Пропущено: ${env_file}"
-                fi
+    read -p "  Заполнить секреты сейчас? [Y/n]: " FILL_SECRETS
+
+    if [[ "${FILL_SECRETS,,}" != "n" ]]; then
+
+        for env_file in "${!SECRET_KEYS[@]}"; do
+            if [[ ! -f "${env_file}" ]]; then
+                continue
             fi
+
+            echo ""
+            echo "  ─────────────────────────────────────"
+            echo "  📄 ${env_file}"
+            echo "     ${SECRET_KEYS[$env_file]}"
+            echo ""
+
+            # Парсим текущие ключи из файла и запрашиваем новые значения
+            temp_content=""
+            while IFS='=' read -r key value || [[ -n "$key" ]]; do
+                [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+                key=$(echo "$key" | xargs)
+
+                # Показываем маскированное текущее значение
+                local_masked="***"
+                [[ -z "$value" || "$value" =~ ^[[:space:]]*$ ]] && local_masked="(пусто)"
+                [[ "$value" =~ your_ || "$value" =~ changeme || "$value" =~ placeholder ]] && local_masked="(плейсхолдер: ${value})"
+
+                read -p "     ${key} [${local_masked}]: " new_value
+                [[ -n "$new_value" ]] && value="$new_value"
+
+                temp_content+="${key}=${value}"$'\n'
+            done < "${env_file}"
+
+            # Записываем обновлённый файл
+            echo "$temp_content" > "${env_file}"
+            echo ""
+            echo "  ✅ ${env_file} сохранён."
         done
+
         echo ""
-        echo "  ✅ Секреты настроены."
+        echo "  ✅ Все секреты настроены."
     else
-        echo "  ⏭️  Пропущено. Файлы для заполнения:"
-        for env_file in "${ENV_FILES[@]}"; do
-            echo "    - ${env_file}"
+        echo "  ⏭️  Пропущено. Файлы для заполнения вручную:"
+        for env_file in "${!SECRET_KEYS[@]}"; do
+            echo "     ${env_file} — ${SECRET_KEYS[$env_file]}"
         done
     fi
 
