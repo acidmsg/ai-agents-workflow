@@ -140,6 +140,7 @@ SCRIPTS_DIR="${SCRIPTS_DIR:-/opt/scripts}"
 N8N_PORT="${N8N_PORT:-5678}"
 N8N_WEBHOOK_URL="${N8N_WEBHOOK_URL:-https://your-vps-domain-or-ip:5678/}"
 N8N_DOMAIN="${N8N_DOMAIN:-}"
+N8N_PROXY_PORT="${N8N_PROXY_PORT:-8443}"
 GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v1.59.1}"
 MIN_DISK_SPACE_MB="${MIN_DISK_SPACE_MB:-500}"
 HOME_DIR_PERMS="${HOME_DIR_PERMS:-2775}"
@@ -170,6 +171,7 @@ if [[ -f "${CONFIG_FILE}" ]]; then
             N8N_PORT)              N8N_PORT="$value" ;;
             N8N_WEBHOOK_URL)       N8N_WEBHOOK_URL="$value" ;;
             N8N_DOMAIN)            N8N_DOMAIN="$value" ;;
+            N8N_PROXY_PORT)        N8N_PROXY_PORT="$value" ;;
             GOLANGCI_LINT_VERSION) GOLANGCI_LINT_VERSION="$value" ;;
             MIN_DISK_SPACE_MB)     MIN_DISK_SPACE_MB="$value" ;;
             HOME_DIR_PERMS)        HOME_DIR_PERMS="$value" ;;
@@ -860,11 +862,12 @@ else
 fi
 
 # ─── STEP 0.6.4: Настройка reverse proxy (Caddy) для n8n ───
+CADDY_PORT="${N8N_PROXY_PORT:-8443}"
+
 if [[ -n "${N8N_DOMAIN:-}" ]]; then
     echo ""
     echo "[STEP 0.6.4] Настройка reverse proxy (Caddy) для n8n"
 
-    CADDYFILE="/etc/caddy/Caddyfile"
     N8N_CADDY="/etc/caddy/sites/n8n.conf"
 
     if [[ -f "${N8N_CADDY}" ]]; then
@@ -873,30 +876,49 @@ if [[ -n "${N8N_DOMAIN:-}" ]]; then
         mkdir -p /etc/caddy/sites
 
         cat > "${N8N_CADDY}" << CADDYEOF
-${N8N_DOMAIN} {
+${N8N_DOMAIN}:${CADDY_PORT} {
     reverse_proxy localhost:${N8N_PORT}
 }
 CADDYEOF
 
-        echo "  [OK] Конфиг Caddy создан: ${N8N_CADDY}"
+        echo "  [OK] Конфиг Caddy создан: ${N8N_CADDY} (порт ${CADDY_PORT})"
 
-        # Добавляем import в основной Caddyfile если ещё нет
-        if ! grep -q "import /etc/caddy/sites/\*.conf" "${CADDYFILE}" 2>/dev/null; then
-            echo 'import /etc/caddy/sites/*.conf' >> "${CADDYFILE}"
-            echo "  [OK] Import sites добавлен в ${CADDYFILE}"
+        # Настраиваем Caddy на нужный порт если ещё не настроен
+        if ! grep -q ":${CADDY_PORT}" /etc/caddy/Caddyfile 2>/dev/null; then
+            # Добавляем глобальный блок для порта
+            cat > /etc/caddy/Caddyfile_caddy << 'CADDYGLOBAL'
+{
+    http_port 80
+    https_port CADDY_PORT_PLACEHOLDER
+}
+import /etc/caddy/sites/*.conf
+CADDYGLOBAL
+            sed -i "s/CADDY_PORT_PLACEHOLDER/${CADDY_PORT}/" /etc/caddy/Caddyfile_caddy
+            # Не перезаписываем если уже есть Caddyfile
+            if [[ ! -f /etc/caddy/Caddyfile ]]; then
+                mv /etc/caddy/Caddyfile_caddy /etc/caddy/Caddyfile
+            else
+                rm -f /etc/caddy/Caddyfile_caddy
+            fi
         fi
 
         # Перезагружаем Caddy
         if systemctl is-active --quiet caddy 2>/dev/null; then
-            systemctl reload caddy 2>/dev/null || true
+            systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
             echo "  [OK] Caddy перезагружен"
+        else
+            echo "  ⚠️  Caddy не запущен. Запустите: systemctl start caddy"
         fi
     fi
+
+    echo ""
+    echo "  n8n будет доступен по адресу: https://${N8N_DOMAIN}:${CADDY_PORT}"
+    echo "  ⚠️  Для доступа без порта (https://${N8N_DOMAIN}) — настройте fallback в 3x-ui:"
+    echo "      SNI: ${N8N_DOMAIN} → Dest: localhost:${CADDY_PORT}"
 else
     echo ""
     echo "[STEP 0.6.4] Настройка reverse proxy для n8n"
     echo "  [SKIP] N8N_DOMAIN не задан — reverse proxy не настраивается"
-    echo "  Доступ к n8n: http://<IP>:${N8N_PORT}"
 fi
 
 # =============================================================================
@@ -1158,14 +1180,15 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
         N8N_DOMAIN="${val}"
         echo "     ✅ N8N_DOMAIN=${val}"
         echo ""
-        echo "     n8n будет доступен по адресу: https://${val}"
+        echo "     n8n будет доступен по адресу: https://${val}:8443"
+        echo "     Для доступа без порта — настройте fallback в 3x-ui."
     else
         echo "     ⏭️  пропущен — n8n будет доступен только по IP:${N8N_PORT}"
     fi
 
     EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
     if [[ -n "${N8N_DOMAIN:-}" ]]; then
-        N8N_URL="https://${N8N_DOMAIN}"
+        N8N_URL="https://${N8N_DOMAIN}:${N8N_PROXY_PORT:-8443}"
     else
         N8N_URL="http://${EXTERNAL_IP}:${N8N_PORT}"
     fi
