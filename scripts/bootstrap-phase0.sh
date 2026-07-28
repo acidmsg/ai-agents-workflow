@@ -615,6 +615,7 @@ N8N_ENV_CONTENT="# n8n-specific secrets
 # ВНИМАНИЕ: замените плейсхолдер на реальный ключ Linear API после разворачивания!
 
 source ${SECRETS_DIR}/shared.env
+N8N_SECURE_COOKIE=false
 LINEAR_API_KEY=lin_api_your_linear_key_here
 "
 
@@ -822,6 +823,7 @@ Environment=N8N_PORT=${N8N_PORT}
 Environment=N8N_HOST=0.0.0.0
 Environment=N8N_PROTOCOL=http
 Environment=NODE_ENV=production
+Environment=N8N_SECURE_COOKIE=false
 Environment=WEBHOOK_URL=${N8N_WEBHOOK_URL}
 ExecStart=${N8N_BIN} start
 Restart=on-failure
