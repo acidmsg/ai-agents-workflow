@@ -1044,81 +1044,78 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     read -p "  Заполнить секреты сейчас? [Y/n]: " FILL_SECRETS
 
     if [[ "${FILL_SECRETS,,}" != "n" ]]; then
-        # Авто-генерация ключа шифрования n8n (если ещё не задан)
-        if [[ -f "${SECRETS_DIR}/n8n.env" ]] && ! grep -q "^N8N_ENCRYPTION_KEY=" "${SECRETS_DIR}/n8n.env" 2>/dev/null; then
-            N8N_KEY=$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-f0-9' | head -c 64)
+        # Авто-генерация ключа шифрования n8n
+        if ! grep -q "^N8N_ENCRYPTION_KEY=" "${SECRETS_DIR}/n8n.env" 2>/dev/null; then
+            N8N_KEY=$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom 2>/dev/null | tr -dc 'a-f0-9' | head -c 64)
             echo "N8N_ENCRYPTION_KEY=${N8N_KEY}" >> "${SECRETS_DIR}/n8n.env"
             echo "  ✅ N8N_ENCRYPTION_KEY сгенерирован автоматически"
         fi
 
-        # Определяем ожидаемые ключи для каждого файла
-        # Формат: "file|key|description"
-        SECRET_SPECS=(
-            # shared.env — общие для всех агентов
-            "${SECRETS_DIR}/shared.env|DEEPSEEK_API_KEY|API-ключ DeepSeek (используется всеми агентами)"
-            "${SECRETS_DIR}/shared.env|GITHUB_TOKEN|GitHub PAT (права: Contents R/W, PR R/W, Metadata, Webhooks)"
-            # n8n.env — оркестратор
-            "${SECRETS_DIR}/n8n.env|LINEAR_API_KEY|Linear GraphQL API-ключ для управления задачами"
-            # N8N_ENCRYPTION_KEY генерируется автоматически, не запрашиваем
-            # openclaw.env — кодер (все ключи из shared.env)
-            # antigravity.env — критик
-            "${SECRETS_DIR}/antigravity.env|ANTI_GRAVITY_TOKEN|Токен Antigravity CLI (Google One credits → Claude 4.6)"
-            # hermes.env — коммуникатор (все ключи из shared.env)
-        )
+        # shared.env
+        echo ""
+        echo "  ─────────────────────────────────────"
+        echo "  📄 ${SECRETS_DIR}/shared.env — общие для всех агентов"
+        echo ""
 
-    prev_file=""
-
-    for spec in "${SECRET_SPECS[@]}"; do
-        IFS='|' read -r env_file key desc <<< "$spec"
-
-        # Заголовок файла — только при смене файла
-        if [[ "$env_file" != "$prev_file" ]]; then
-            prev_file="$env_file"
-            echo ""
-            echo "  ─────────────────────────────────────"
-            echo "  📄 ${env_file}"
-            echo ""
-        fi
-
-        # Ищем текущее значение в файле
-        current_value=""
-        if [[ -f "${env_file}" ]]; then
-            current_value=$(grep "^${key}=" "${env_file}" 2>/dev/null | cut -d'=' -f2-)
-        fi
-
-        if [[ -z "$current_value" ]]; then
-            display="(не задан)"
-        elif [[ "$current_value" =~ your_|changeme|placeholder|^[[:space:]]*$ ]]; then
-            display="(плейсхолдер)"
+        read -p "     DEEPSEEK_API_KEY (DeepSeek API): " val
+        if [[ -n "$val" ]]; then
+            grep -v "^DEEPSEEK_API_KEY=" "${SECRETS_DIR}/shared.env" > "${SECRETS_DIR}/shared.env.tmp" 2>/dev/null
+            mv "${SECRETS_DIR}/shared.env.tmp" "${SECRETS_DIR}/shared.env" 2>/dev/null
+            echo "DEEPSEEK_API_KEY=${val}" >> "${SECRETS_DIR}/shared.env"
+            echo "     ✅ сохранён"
         else
-            display="***"
+            echo "     ⏭️  пропущен"
         fi
 
-        read -p "     ${key} — ${desc} [${display}]: " new_value
-
-        if [[ -n "$new_value" ]]; then
-            # Удаляем старую строку с этим ключом и добавляем новую
-            # Используем grep -v вместо sed, чтобы избежать проблем со спецсимволами в значении
-            if [[ -f "${env_file}" ]]; then
-                grep -v "^${key}=" "${env_file}" > "${env_file}.tmp" 2>/dev/null || true
-                mv "${env_file}.tmp" "${env_file}"
-            fi
-            echo "${key}=${new_value}" >> "${env_file}" || true
-            echo "     ✅ ${key} сохранён"
+        read -p "     GITHUB_TOKEN (GitHub PAT): " val
+        if [[ -n "$val" ]]; then
+            grep -v "^GITHUB_TOKEN=" "${SECRETS_DIR}/shared.env" > "${SECRETS_DIR}/shared.env.tmp" 2>/dev/null
+            mv "${SECRETS_DIR}/shared.env.tmp" "${SECRETS_DIR}/shared.env" 2>/dev/null
+            echo "GITHUB_TOKEN=${val}" >> "${SECRETS_DIR}/shared.env"
+            echo "     ✅ сохранён"
         else
-            echo "     ⏭️  ${key} пропущен"
+            echo "     ⏭️  пропущен"
         fi
-    done
+
+        # n8n.env
+        echo ""
+        echo "  ─────────────────────────────────────"
+        echo "  📄 ${SECRETS_DIR}/n8n.env — оркестратор"
+        echo ""
+
+        read -p "     LINEAR_API_KEY (Linear API): " val
+        if [[ -n "$val" ]]; then
+            grep -v "^LINEAR_API_KEY=" "${SECRETS_DIR}/n8n.env" > "${SECRETS_DIR}/n8n.env.tmp" 2>/dev/null
+            mv "${SECRETS_DIR}/n8n.env.tmp" "${SECRETS_DIR}/n8n.env" 2>/dev/null
+            echo "LINEAR_API_KEY=${val}" >> "${SECRETS_DIR}/n8n.env"
+            echo "     ✅ сохранён"
+        else
+            echo "     ⏭️  пропущен"
+        fi
+
+        # antigravity.env
+        echo ""
+        echo "  ─────────────────────────────────────"
+        echo "  📄 ${SECRETS_DIR}/antigravity.env — критик"
+        echo ""
+
+        read -p "     ANTI_GRAVITY_TOKEN (Antigravity CLI): " val
+        if [[ -n "$val" ]]; then
+            grep -v "^ANTI_GRAVITY_TOKEN=" "${SECRETS_DIR}/antigravity.env" > "${SECRETS_DIR}/antigravity.env.tmp" 2>/dev/null
+            mv "${SECRETS_DIR}/antigravity.env.tmp" "${SECRETS_DIR}/antigravity.env" 2>/dev/null
+            echo "ANTI_GRAVITY_TOKEN=${val}" >> "${SECRETS_DIR}/antigravity.env"
+            echo "     ✅ сохранён"
+        else
+            echo "     ⏭️  пропущен"
+        fi
 
         echo ""
         echo "  ✅ Все секреты настроены."
     else
         echo "  ⏭️  Пропущено. Файлы для заполнения вручную:"
-        echo "     ${SECRETS_DIR}/shared.env — общие настройки"
-        echo "     ${SECRETS_DIR}/n8n.env — секреты n8n"
-        echo "     ${SECRETS_DIR}/openclaw.env — секреты OpenClaw"
-        echo "     ${SECRETS_DIR}/antigravity.env — секреты Antigravity"
-        echo "     ${SECRETS_DIR}/hermes.env — секреты Hermes"
+        echo "     ${SECRETS_DIR}/shared.env — DEEPSEEK_API_KEY, GITHUB_TOKEN"
+        echo "     ${SECRETS_DIR}/n8n.env — LINEAR_API_KEY"
+        echo "     ${SECRETS_DIR}/antigravity.env — ANTI_GRAVITY_TOKEN"
     fi
 
     EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
