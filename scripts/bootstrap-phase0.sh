@@ -1031,69 +1031,92 @@ echo "════════════════════════�
 if [[ "${FAIL_COUNT}" -eq 0 ]]; then
     echo -e "  ${CLR_GREEN}${CLR_BOLD}Установка завершена успешно!${CLR_RESET}"
 
-    # Интерактивная настройка секретов (пошаговый ввод каждого ключа)
+    # Интерактивная настройка секретов (явный список ключей вместо парсинга файлов)
     echo ""
     echo "──────────────────────────────────────────"
     echo "  ⚙️  Настройка секретов"
     echo "──────────────────────────────────────────"
     echo ""
-    echo "  Для каждого .env файла нужно ввести значения."
+    echo "  Введите значения для ключей."
     echo "  Оставьте строку пустой и нажмите Enter чтобы пропустить."
     echo ""
-
-    # Ассоциативный массив: путь к файлу → описание
-    declare -A SECRET_KEYS
-    SECRET_KEYS["${SECRETS_DIR}/shared.env"]="Общие настройки для всех агентов"
-    SECRET_KEYS["${SECRETS_DIR}/n8n.env"]="Секреты для n8n (воркфлоу-движок)"
-    SECRET_KEYS["${SECRETS_DIR}/openclaw.env"]="Секреты для OpenClaw (AI-разработчик)"
-    SECRET_KEYS["${SECRETS_DIR}/antigravity.env"]="Секреты для Antigravity (AI-критик)"
-    SECRET_KEYS["${SECRETS_DIR}/hermes.env"]="Секреты для Hermes (AI-коммуникатор)"
 
     read -p "  Заполнить секреты сейчас? [Y/n]: " FILL_SECRETS
 
     if [[ "${FILL_SECRETS,,}" != "n" ]]; then
+        # Авто-генерация ключа шифрования n8n (если ещё не задан)
+        if [[ -f "${SECRETS_DIR}/n8n.env" ]] && ! grep -q "^N8N_ENCRYPTION_KEY=" "${SECRETS_DIR}/n8n.env" 2>/dev/null; then
+            N8N_KEY=$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-f0-9' | head -c 64)
+            echo "N8N_ENCRYPTION_KEY=${N8N_KEY}" >> "${SECRETS_DIR}/n8n.env"
+            echo "  ✅ N8N_ENCRYPTION_KEY сгенерирован автоматически"
+        fi
 
-        for env_file in "${!SECRET_KEYS[@]}"; do
-            if [[ ! -f "${env_file}" ]]; then
-                continue
+        # Определяем ожидаемые ключи для каждого файла
+        # Формат: "file|key|description"
+        SECRET_SPECS=(
+            # shared.env — общие для всех агентов
+            "${SECRETS_DIR}/shared.env|DEEPSEEK_API_KEY|API-ключ DeepSeek (используется всеми агентами)"
+            "${SECRETS_DIR}/shared.env|GITHUB_TOKEN|GitHub PAT (права: Contents R/W, PR R/W, Metadata, Webhooks)"
+            # n8n.env — оркестратор
+            "${SECRETS_DIR}/n8n.env|LINEAR_API_KEY|Linear GraphQL API-ключ для управления задачами"
+            # N8N_ENCRYPTION_KEY генерируется автоматически, не запрашиваем
+            # openclaw.env — кодер (все ключи из shared.env)
+            # antigravity.env — критик
+            "${SECRETS_DIR}/antigravity.env|ANTI_GRAVITY_TOKEN|Токен Antigravity CLI (Google One credits → Claude 4.6)"
+            # hermes.env — коммуникатор (все ключи из shared.env)
+        )
+
+        # Группируем по файлам
+        declare -A FILE_PROCESSED
+
+        for spec in "${SECRET_SPECS[@]}"; do
+            IFS='|' read -r env_file key desc <<< "$spec"
+
+            if [[ -z "${FILE_PROCESSED[$env_file]}" ]]; then
+                FILE_PROCESSED[$env_file]=1
+                echo ""
+                echo "  ─────────────────────────────────────"
+                echo "  📄 ${env_file}"
+                echo ""
             fi
 
-            echo ""
-            echo "  ─────────────────────────────────────"
-            echo "  📄 ${env_file}"
-            echo "     ${SECRET_KEYS[$env_file]}"
-            echo ""
+            # Ищем текущее значение в файле
+            current_value=""
+            if [[ -f "${env_file}" ]]; then
+                current_value=$(grep "^${key}=" "${env_file}" 2>/dev/null | cut -d'=' -f2-)
+            fi
 
-            # Парсим текущие ключи из файла и запрашиваем новые значения
-            temp_content=""
-            while IFS='=' read -r key value || [[ -n "$key" ]]; do
-                [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-                key=$(echo "$key" | xargs)
+            if [[ -z "$current_value" ]]; then
+                display="(не задан)"
+            elif [[ "$current_value" =~ your_|changeme|placeholder|^[[:space:]]*$ ]]; then
+                display="(плейсхолдер)"
+            else
+                display="***"
+            fi
 
-                # Показываем маскированное текущее значение
-                local_masked="***"
-                [[ -z "$value" || "$value" =~ ^[[:space:]]*$ ]] && local_masked="(пусто)"
-                [[ "$value" =~ your_ || "$value" =~ changeme || "$value" =~ placeholder ]] && local_masked="(плейсхолдер: ${value})"
+            read -p "     ${key} — ${desc} [${display}]: " new_value
 
-                read -p "     ${key} [${local_masked}]: " new_value
-                [[ -n "$new_value" ]] && value="$new_value"
-
-                temp_content+="${key}=${value}"$'\n'
-            done < "${env_file}"
-
-            # Записываем обновлённый файл
-            echo "$temp_content" > "${env_file}"
-            echo ""
-            echo "  ✅ ${env_file} сохранён."
+            if [[ -n "$new_value" ]]; then
+                if grep -q "^${key}=" "${env_file}" 2>/dev/null; then
+                    sed -i "s|^${key}=.*|${key}=${new_value}|" "${env_file}"
+                else
+                    echo "${key}=${new_value}" >> "${env_file}"
+                fi
+                echo "     ✅ ${key} сохранён"
+            else
+                echo "     ⏭️  ${key} пропущен"
+            fi
         done
 
         echo ""
         echo "  ✅ Все секреты настроены."
     else
         echo "  ⏭️  Пропущено. Файлы для заполнения вручную:"
-        for env_file in "${!SECRET_KEYS[@]}"; do
-            echo "     ${env_file} — ${SECRET_KEYS[$env_file]}"
-        done
+        echo "     ${SECRETS_DIR}/shared.env — общие настройки"
+        echo "     ${SECRETS_DIR}/n8n.env — секреты n8n"
+        echo "     ${SECRETS_DIR}/openclaw.env — секреты OpenClaw"
+        echo "     ${SECRETS_DIR}/antigravity.env — секреты Antigravity"
+        echo "     ${SECRETS_DIR}/hermes.env — секреты Hermes"
     fi
 
     EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
