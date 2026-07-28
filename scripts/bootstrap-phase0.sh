@@ -139,6 +139,7 @@ CONFIG_DIR="${CONFIG_DIR:-/opt/config}"
 SCRIPTS_DIR="${SCRIPTS_DIR:-/opt/scripts}"
 N8N_PORT="${N8N_PORT:-5678}"
 N8N_WEBHOOK_URL="${N8N_WEBHOOK_URL:-https://your-vps-domain-or-ip:5678/}"
+N8N_DOMAIN="${N8N_DOMAIN:-}"
 GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v1.59.1}"
 MIN_DISK_SPACE_MB="${MIN_DISK_SPACE_MB:-500}"
 HOME_DIR_PERMS="${HOME_DIR_PERMS:-2775}"
@@ -168,6 +169,7 @@ if [[ -f "${CONFIG_FILE}" ]]; then
             SCRIPTS_DIR)           SCRIPTS_DIR="$value" ;;
             N8N_PORT)              N8N_PORT="$value" ;;
             N8N_WEBHOOK_URL)       N8N_WEBHOOK_URL="$value" ;;
+            N8N_DOMAIN)            N8N_DOMAIN="$value" ;;
             GOLANGCI_LINT_VERSION) GOLANGCI_LINT_VERSION="$value" ;;
             MIN_DISK_SPACE_MB)     MIN_DISK_SPACE_MB="$value" ;;
             HOME_DIR_PERMS)        HOME_DIR_PERMS="$value" ;;
@@ -615,7 +617,6 @@ N8N_ENV_CONTENT="# n8n-specific secrets
 # ВНИМАНИЕ: замените плейсхолдер на реальный ключ Linear API после разворачивания!
 
 source ${SECRETS_DIR}/shared.env
-N8N_SECURE_COOKIE=false
 LINEAR_API_KEY=lin_api_your_linear_key_here
 "
 
@@ -823,7 +824,6 @@ Environment=N8N_PORT=${N8N_PORT}
 Environment=N8N_HOST=0.0.0.0
 Environment=N8N_PROTOCOL=http
 Environment=NODE_ENV=production
-Environment=N8N_SECURE_COOKIE=false
 Environment=WEBHOOK_URL=${N8N_WEBHOOK_URL}
 ExecStart=${N8N_BIN} start
 Restart=on-failure
@@ -857,6 +857,46 @@ if systemctl is-active n8n &>/dev/null; then
 else
     systemctl start n8n
     ok "n8n запущен"
+fi
+
+# ─── STEP 0.6.4: Настройка reverse proxy (Caddy) для n8n ───
+if [[ -n "${N8N_DOMAIN:-}" ]]; then
+    echo ""
+    echo "[STEP 0.6.4] Настройка reverse proxy (Caddy) для n8n"
+
+    CADDYFILE="/etc/caddy/Caddyfile"
+    N8N_CADDY="/etc/caddy/sites/n8n.conf"
+
+    if [[ -f "${N8N_CADDY}" ]]; then
+        echo "  [SKIP] Конфиг Caddy для n8n уже существует: ${N8N_CADDY}"
+    else
+        mkdir -p /etc/caddy/sites
+
+        cat > "${N8N_CADDY}" << CADDYEOF
+${N8N_DOMAIN} {
+    reverse_proxy localhost:${N8N_PORT}
+}
+CADDYEOF
+
+        echo "  [OK] Конфиг Caddy создан: ${N8N_CADDY}"
+
+        # Добавляем import в основной Caddyfile если ещё нет
+        if ! grep -q "import /etc/caddy/sites/\*.conf" "${CADDYFILE}" 2>/dev/null; then
+            echo 'import /etc/caddy/sites/*.conf' >> "${CADDYFILE}"
+            echo "  [OK] Import sites добавлен в ${CADDYFILE}"
+        fi
+
+        # Перезагружаем Caddy
+        if systemctl is-active --quiet caddy 2>/dev/null; then
+            systemctl reload caddy 2>/dev/null || true
+            echo "  [OK] Caddy перезагружен"
+        fi
+    fi
+else
+    echo ""
+    echo "[STEP 0.6.4] Настройка reverse proxy для n8n"
+    echo "  [SKIP] N8N_DOMAIN не задан — reverse proxy не настраивается"
+    echo "  Доступ к n8n: http://<IP>:${N8N_PORT}"
 fi
 
 # =============================================================================
@@ -1103,8 +1143,32 @@ if [[ "${FAIL_COUNT}" -eq 0 ]]; then
         echo "     ${SECRETS_DIR}/n8n.env — LINEAR_API_KEY"
     fi
 
+    # Домен для n8n
+    echo ""
+    echo "  ─────────────────────────────────────"
+    echo "  🌐 Домен для n8n"
+    echo ""
+    read -p "     N8N_DOMAIN (оставьте пустым если нет домена): " val
+    if [[ -n "$val" ]]; then
+        if grep -q "^N8N_DOMAIN=" "${SECRETS_DIR}/n8n.env" 2>/dev/null; then
+            sed -i "s|^N8N_DOMAIN=.*|N8N_DOMAIN=${val}|" "${SECRETS_DIR}/n8n.env"
+        else
+            echo "N8N_DOMAIN=${val}" >> "${SECRETS_DIR}/n8n.env"
+        fi
+        N8N_DOMAIN="${val}"
+        echo "     ✅ N8N_DOMAIN=${val}"
+        echo ""
+        echo "     n8n будет доступен по адресу: https://${val}"
+    else
+        echo "     ⏭️  пропущен — n8n будет доступен только по IP:${N8N_PORT}"
+    fi
+
     EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
-    N8N_URL="http://${EXTERNAL_IP}:${N8N_PORT}"
+    if [[ -n "${N8N_DOMAIN:-}" ]]; then
+        N8N_URL="https://${N8N_DOMAIN}"
+    else
+        N8N_URL="http://${EXTERNAL_IP}:${N8N_PORT}"
+    fi
 
     echo ""
     echo "  Следующие шаги:"
