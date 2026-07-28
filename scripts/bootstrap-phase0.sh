@@ -868,6 +868,11 @@ if [[ -n "${N8N_DOMAIN:-}" ]]; then
     echo ""
     echo "[STEP 0.6.4] Настройка reverse proxy (Caddy) для n8n"
 
+    if ss -tlnp | grep -q ":${CADDY_PORT} "; then
+        echo "  ⚠️  Порт ${CADDY_PORT} уже занят. Caddy не настроен."
+        echo "  Проверьте: ss -tlnp | grep :${CADDY_PORT}"
+    else
+
     N8N_CADDY="/etc/caddy/sites/n8n.conf"
 
     if [[ -f "${N8N_CADDY}" ]]; then
@@ -909,6 +914,26 @@ CADDYGLOBAL
         else
             echo "  ⚠️  Caddy не запущен. Запустите: systemctl start caddy"
         fi
+
+        # UFW
+        if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+            if ufw status | grep -q ":${CADDY_PORT}/tcp"; then
+                echo "  [SKIP] UFW: порт ${CADDY_PORT} уже открыт"
+            else
+                ufw allow "${CADDY_PORT}/tcp" comment "caddy n8n ${N8N_DOMAIN}"
+                echo "  [OK] UFW: порт ${CADDY_PORT} открыт"
+            fi
+        fi
+
+        # Smoke-test
+        sleep 2
+        if curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${CADDY_PORT}/" 2>/dev/null | grep -q "200\|301\|302"; then
+            echo "  [OK] Caddy отвечает на порту ${CADDY_PORT}"
+        else
+            echo "  ⚠️  Caddy пока не отвечает. Проверьте: systemctl status caddy"
+        fi
+    fi
+
     fi
 
     echo ""
